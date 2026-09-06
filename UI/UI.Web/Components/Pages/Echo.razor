@@ -1,0 +1,53 @@
+@page "/echo"
+@rendermode InteractiveServer
+@using UI.Web.ApiClient
+@inject IServiceApiClient ServiceApiClient
+
+<PageTitle>Echo</PageTitle>
+
+<h1>Echo</h1>
+
+<p>
+    Sends the message below to the Service's <code>GET /api/Echo</code> endpoint using the
+    NSwag-generated <code>ServiceApiClient</code> and displays what comes back.
+</p>
+
+<div class="mb-3">
+    <input @bind="_message" @bind:event="oninput" placeholder="Type a message..." />
+    <button @onclick="SendAsync" disabled="@_isSending">Send</button>
+</div>
+
+@if (_result is not null)
+{
+    <p>Response: <strong>@_result.Message</strong></p>
+}
+
+@if (_error is not null)
+{
+    <p style="color:red">Error: @_error</p>
+}
+
+@code {
+    private string _message = string.Empty;
+    private EchoResponse? _result;
+    private string? _error;
+    private bool _isSending;
+
+    private async Task SendAsync()
+    {
+        _isSending = true;
+        _error = null;
+        try
+        {
+            _result = await ServiceApiClient.EchoAsync(_message);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isSending = false;
+        }
+    }
+}
