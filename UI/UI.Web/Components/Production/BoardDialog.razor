@@ -1,0 +1,157 @@
+@inject IServiceApiClient Api
+@inject ILogger<BoardDialog> Logger
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+        }
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="_name" Label="Name" Required="true" RequiredError="Name is required" MaxLength="200" Immediate="true"
+                          Error="@HasError("Name")" ErrorText="@ErrorText("Name")" />
+            <MudTextField @bind-Value="_description" Label="Description" Lines="3" MaxLength="2000" Class="mt-3"
+                          Error="@HasError("Description")" ErrorText="@ErrorText("Description")" />
+            <MudStack Row="true" Class="mt-3">
+                <MudNumericField @bind-Value="_length" Label="Length (mm)" Min="0.01" Max="100000" Format="F2" Required="true"
+                                  Error="@HasError("Length")" ErrorText="@ErrorText("Length")" />
+                <MudNumericField @bind-Value="_width" Label="Width (mm)" Min="0.01" Max="100000" Format="F2" Required="true"
+                                  Error="@HasError("Width")" ErrorText="@ErrorText("Width")" />
+            </MudStack>
+            <MudSelect T="Guid" @bind-SelectedValues="_componentIds" MultiSelection="true" SelectAll="true" SelectAllText="Select all"
+                       Label="Components" Required="true" RequiredError="Select at least one component" Class="mt-3"
+                       ToStringFunc="@(id => _componentNames.GetValueOrDefault(id, id.ToString()))"
+                       Error="@HasError("ComponentIds")" ErrorText="@ErrorText("ComponentIds")">
+                @foreach (var component in _components)
+                {
+                    <MudSelectItem T="Guid" Value="@component.Id">@component.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_components.Count == 0 && _error is null)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">No components yet: create components on the Components tab first.</MudText>
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Existing board to edit; null creates a new one.</summary>
+    [Parameter]
+    public BoardDto? Board { get; set; }
+
+    private MudForm _form = default!;
+    private string _name = "";
+    private string? _description;
+    private double _length;
+    private double _width;
+    private IReadOnlyCollection<Guid>? _componentIds = [];
+    private ICollection<ComponentDto> _components = [];
+    private Dictionary<Guid, string> _componentNames = [];
+    private IDictionary<string, ICollection<string>>? _fieldErrors;
+    private string? _error;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Board is not null)
+        {
+            _name = Board.Name;
+            _description = Board.Description;
+            _length = (double)Board.Length;
+            _width = (double)Board.Width;
+        }
+
+        // Load the component names before setting the pre-selected ids below: OnInitializedAsync's first
+        // (pre-await) render already shows MudSelect's SelectedValues, and MudSelect only resolves each
+        // selected value's display text once, at that point. Setting _componentIds before _componentNames
+        // is ready would freeze the summary text on the raw ids.
+        try
+        {
+            _components = await Api.GetComponentsAsync();
+            _componentNames = _components.ToDictionary(c => c.Id, c => c.Name);
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            Logger.LogError(ex, "Loading components for the board dialog failed");
+            _error = "Components could not be loaded. Close the dialog and try again.";
+            return;
+        }
+
+        if (Board is not null)
+        {
+            _componentIds = Board.Components.Select(c => c.Id).ToList();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        var request = new BoardRequest
+        {
+            Name = _name.Trim(),
+            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            Length = _length,
+            Width = _width,
+            ComponentIds = (_componentIds ?? []).ToList(),
+        };
+
+        _saving = true;
+        _error = null;
+        _fieldErrors = null;
+        try
+        {
+            var saved = Board is null
+                ? await Api.CreateBoardAsync(request)
+                : await Api.UpdateBoardAsync(Board.Id, request);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            HandleSaveFailure(ex);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void HandleSaveFailure(Exception ex)
+    {
+        if (ApiErrors.IsSessionExpired(ex))
+        {
+            _error = "Your session has expired. Reload the page to sign in again.";
+            return;
+        }
+
+        if (ApiErrors.TryGetFieldErrors(ex) is { } fieldErrors)
+        {
+            _fieldErrors = fieldErrors;
+            var unmatched = fieldErrors.Where(e => !KnownFields.Contains(e.Key, StringComparer.OrdinalIgnoreCase)).SelectMany(e => e.Value).ToList();
+            _error = unmatched.Count > 0 ? string.Join(" ", unmatched) : "Please correct the highlighted fields.";
+            return;
+        }
+
+        Logger.LogError(ex, "Saving the board failed");
+        _error = ApiErrors.Describe(ex, "Saving failed. Please try again.");
+    }
+
+    private static readonly string[] KnownFields = ["Name", "Description", "Length", "Width", "ComponentIds"];
+
+    private bool HasError(string field) => ErrorText(field) is not null;
+
+    private string? ErrorText(string field) => _fieldErrors?
+        .FirstOrDefault(e => string.Equals(e.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
+}

@@ -1,11 +1,23 @@
-﻿@using System.Net.Http
+@using System.Net.Http
 @using System.Net.Http.Json
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Web
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @using Microsoft.AspNetCore.Components.Web.Virtualization
 @using Microsoft.JSInterop
+@using MudBlazor
 @using UI.Web
+@using UI.Web.ApiClient
+@using UI.Web.Auth
 @using UI.Web.Components
 @using UI.Web.Components.Layout
+@using UI.Web.Components.Production
+@using UI.Web.Components.Shared
+@* Microsoft.AspNetCore.Http (a Web SDK implicit global using) also defines HttpValidationProblemDetails;
+   alias the generated client's type so Razor files can catch/reference it without a CS0104 clash. *@
+@using ValidationProblemDetails = UI.Web.ApiClient.HttpValidationProblemDetails
+@* Every routable component requires a signed-in user unless it opts out with [AllowAnonymous]. *@
+@attribute [Authorize]

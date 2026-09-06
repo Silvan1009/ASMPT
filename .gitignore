@@ -11,3 +11,6 @@ obj/
 ## OS
 .DS_Store
 Thumbs.db
+
+## HTTPS development certificate exported for the Docker stack (see README)
+certs/

@@ -5,9 +5,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>asmpt-ui-web</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MudBlazor" Version="9.9.0" />
     <PackageReference Include="NSwag.ApiDescription.Client" Version="14.7.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -22,7 +24,7 @@
                       Namespace="UI.Web.ApiClient"
                       ClassName="ServiceApiClient"
                       OutputPath="ServiceApiClient.g.cs">
-      <Options>/JsonLibrary:SystemTextJson /GenerateClientInterfaces:true /UseBaseUrl:false /OperationGenerationMode:SingleClientFromOperationId /GenerateOptionalParameters:true</Options>
+      <Options>/JsonLibrary:SystemTextJson /GenerateClientInterfaces:true /UseBaseUrl:false /OperationGenerationMode:SingleClientFromOperationId /GenerateOptionalParameters:true /GeneratePrepareRequestAndProcessResponseAsAsyncMethods:true /DateType:System.DateOnly</Options>
     </OpenApiReference>
   </ItemGroup>
 

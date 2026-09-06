@@ -1,0 +1,10 @@
+# Applies to image builds with the repository root as context (Service.Api and UI.Web).
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+.git/
+.claude/
+certs/
+docker/
+*.md

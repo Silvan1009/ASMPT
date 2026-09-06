@@ -1,9 +1,50 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
 
-@Body
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider CloseButton="true" BackdropClick="false" MaxWidth="MaxWidth.Small" FullWidth="true" />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true">
+        <MudLink Href="/" Color="Color.Inherit" Underline="Underline.None" Typo="Typo.h6" Class="mr-6">ASMPT</MudLink>
+        <MudButton Href="/" Color="Color.Inherit">Home</MudButton>
+        <MudButton Href="/production" Color="Color.Inherit">Production</MudButton>
+        <MudButton Href="/echo" Color="Color.Inherit">Echo</MudButton>
+        <AuthorizeView Roles="@FirebaseRoles.Admin">
+            <MudButton Href="/users" Color="Color.Inherit">Users</MudButton>
+        </AuthorizeView>
+        <MudSpacer />
+        <AuthorizeView>
+            <Authorized>
+                <MudText Typo="Typo.body2" Class="mr-4">@(context.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? context.User.Identity?.Name)</MudText>
+                @* Plain (non-enhanced) form POST: only a full request can clear the cookie. The antiforgery
+                   token reaches the interactive circuit through persisted component state. *@
+                <form method="post" action="/logout">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="returnUrl" value="@CurrentPath" />
+                    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Outlined" Color="Color.Inherit" Size="Size.Small">Log out</MudButton>
+                </form>
+            </Authorized>
+            <NotAuthorized>
+                <MudButton Href="/login" Color="Color.Inherit">Log in</MudButton>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudAppBar>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private string CurrentPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+}

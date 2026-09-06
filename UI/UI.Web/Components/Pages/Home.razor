@@ -2,11 +2,22 @@
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+<MudText Typo="Typo.h4" GutterBottom="true">Hello, world!</MudText>
 
-Welcome to your new app.
+<AuthorizeView>
+    <MudText Class="mb-4">You are signed in as <strong>@(context.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value ?? context.User.Identity?.Name)</strong>.</MudText>
+</AuthorizeView>
 
-<p>
-    <a href="echo">Try the Echo demo page</a>, which calls the Service API through the
-    NSwag-generated client.
-</p>
+<MudList T="string">
+    <MudListItem>
+        <MudLink Href="/production">Production</MudLink>: manage orders, boards and components, and download an order.
+    </MudListItem>
+    <MudListItem>
+        <MudLink Href="/echo">Echo</MudLink>: calls the Service API with your Firebase ID token.
+    </MudListItem>
+    <AuthorizeView Roles="@FirebaseRoles.Admin">
+        <MudListItem>
+            <MudLink Href="/users">Users</MudLink>: the application's user table (admin only).
+        </MudListItem>
+    </AuthorizeView>
+</MudList>

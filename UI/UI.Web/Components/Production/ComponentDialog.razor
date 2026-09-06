@@ -1,0 +1,109 @@
+@inject IServiceApiClient Api
+@inject ILogger<ComponentDialog> Logger
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+        }
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="_name" Label="Name" Required="true" RequiredError="Name is required" MaxLength="200" Immediate="true"
+                          Error="@HasError("Name")" ErrorText="@ErrorText("Name")" />
+            <MudTextField @bind-Value="_description" Label="Description" Lines="3" MaxLength="2000" Class="mt-3"
+                          Error="@HasError("Description")" ErrorText="@ErrorText("Description")" />
+            <MudNumericField @bind-Value="_quantity" Label="Quantity" Min="0" Max="1000000" Required="true" Class="mt-3"
+                              Error="@HasError("Quantity")" ErrorText="@ErrorText("Quantity")" />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Existing component to edit; null creates a new one.</summary>
+    [Parameter]
+    public ComponentDto? Component { get; set; }
+
+    private MudForm _form = default!;
+    private string _name = "";
+    private string? _description;
+    private int _quantity;
+    private IDictionary<string, ICollection<string>>? _fieldErrors;
+    private string? _error;
+    private bool _saving;
+
+    protected override void OnInitialized()
+    {
+        if (Component is not null)
+        {
+            _name = Component.Name;
+            _description = Component.Description;
+            _quantity = Component.Quantity;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        var request = new ComponentRequest
+        {
+            Name = _name.Trim(),
+            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            Quantity = _quantity,
+        };
+
+        _saving = true;
+        _error = null;
+        _fieldErrors = null;
+        try
+        {
+            var saved = Component is null
+                ? await Api.CreateComponentAsync(request)
+                : await Api.UpdateComponentAsync(Component.Id, request);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            HandleSaveFailure(ex);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void HandleSaveFailure(Exception ex)
+    {
+        if (ApiErrors.IsSessionExpired(ex))
+        {
+            _error = "Your session has expired. Reload the page to sign in again.";
+            return;
+        }
+
+        if (ApiErrors.TryGetFieldErrors(ex) is { } fieldErrors)
+        {
+            _fieldErrors = fieldErrors;
+            _error = "Please correct the highlighted fields.";
+            return;
+        }
+
+        Logger.LogError(ex, "Saving the component failed");
+        _error = ApiErrors.Describe(ex, "Saving failed. Please try again.");
+    }
+
+    private bool HasError(string field) => ErrorText(field) is not null;
+
+    private string? ErrorText(string field) => _fieldErrors?
+        .FirstOrDefault(e => string.Equals(e.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
+}

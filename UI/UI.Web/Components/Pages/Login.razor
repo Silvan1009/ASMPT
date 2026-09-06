@@ -1,0 +1,126 @@
+@page "/login"
+@attribute [AllowAnonymous]
+@attribute [ExcludeFromInteractiveRouting]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Authentication.Cookies
+@inject IFirebaseAuthClient Firebase
+@inject IUserTokenProvider TokenProvider
+@inject IServiceApiClient Api
+@inject NavigationManager Navigation
+@inject ILogger<Login> Logger
+
+<PageTitle>Log in</PageTitle>
+
+<section class="login">
+    <h1>Log in</h1>
+
+    <EditForm Model="Input" OnValidSubmit="LoginAsync" FormName="login">
+        <DataAnnotationsValidator />
+
+        @if (_error is not null)
+        {
+            <p class="error" role="alert">@_error</p>
+        }
+
+        <label for="email">Email</label>
+        <InputText id="email" @bind-Value="Input!.Email" type="email" autocomplete="username" />
+        <ValidationMessage For="() => Input!.Email" />
+
+        <label for="password">Password</label>
+        @* A plain input, so a failed attempt never renders the submitted password back into the page. *@
+        <input id="password" type="password" name="Input.Password" autocomplete="current-password" />
+        <ValidationMessage For="() => Input!.Password" />
+
+        <label class="checkbox">
+            <InputCheckbox @bind-Value="Input!.RememberMe" />
+            Remember me
+        </label>
+
+        <button type="submit">Log in</button>
+    </EditForm>
+</section>
+
+@code {
+    [CascadingParameter]
+    public HttpContext HttpContext { get; set; } = default!;
+
+    // No initializer on purpose (BL0008): a form post may bind null, so OnInitialized supplies the default.
+    [SupplyParameterFromForm]
+    public InputModel? Input { get; set; }
+
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        Input ??= new InputModel();
+
+        if (HttpContext.User.Identity?.IsAuthenticated == true)
+        {
+            // Static SSR: NavigateTo turns the response into a redirect.
+            Navigation.NavigateTo(LocalUrl.Sanitize(ReturnUrl));
+        }
+    }
+
+    private async Task LoginAsync()
+    {
+        var cancellationToken = HttpContext.RequestAborted;
+        var input = Input!;
+        var result = await Firebase.SignInWithPasswordAsync(input.Email, input.Password, cancellationToken);
+        if (result.Session is null)
+        {
+            _error = result.Error switch
+            {
+                SignInError.UserDisabled => "This account has been disabled.",
+                SignInError.TooManyAttempts => "Too many failed attempts. Please try again later.",
+                SignInError.Unavailable => "Sign-in is temporarily unavailable. Please try again later.",
+                // Unknown email and wrong password produce the same message on purpose.
+                _ => "Invalid email or password.",
+            };
+            return;
+        }
+
+        var session = result.Session;
+        var principal = FirebasePrincipalFactory.Create(session);
+        await HttpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties { IsPersistent = input.RememberMe });
+
+        // Makes the new identity and its ID token visible to the Service API client within this request.
+        TokenProvider.UseSession(principal, session);
+        await SyncUserAsync(session.Uid, cancellationToken);
+
+        // Must stay last: in .NET 10 NavigateTo returns normally and the response becomes a redirect.
+        Navigation.NavigateTo(LocalUrl.Sanitize(ReturnUrl));
+    }
+
+    /// <summary>Best effort: a stopped Service must not block the login.</summary>
+    private async Task SyncUserAsync(string uid, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            await Api.SyncCurrentUserAsync(timeout.Token);
+        }
+        catch (Exception ex) when (ex is ApiException or HttpRequestException or OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Synchronising user {Uid} with the Service failed; the login continues", uid);
+        }
+    }
+
+    public sealed class InputModel
+    {
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        public string Password { get; set; } = "";
+
+        public bool RememberMe { get; set; }
+    }
+}

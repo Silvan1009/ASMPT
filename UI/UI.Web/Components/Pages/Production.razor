@@ -1,0 +1,19 @@
+@page "/production"
+
+<PageTitle>Production</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Production</MudText>
+
+@* KeepPanelsAlive stays false (the default): a panel is created when its tab is activated and disposed when
+   it is left, so each grid below reloads fresh data whenever its tab is shown again. *@
+<MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4">
+    <MudTabPanel Text="Orders" Icon="@Icons.Material.Filled.Assignment">
+        <OrdersGrid />
+    </MudTabPanel>
+    <MudTabPanel Text="Boards" Icon="@Icons.Material.Filled.DeveloperBoard">
+        <BoardsGrid />
+    </MudTabPanel>
+    <MudTabPanel Text="Components" Icon="@Icons.Material.Filled.Memory">
+        <ComponentsGrid />
+    </MudTabPanel>
+</MudTabs>

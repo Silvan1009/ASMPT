@@ -24,15 +24,11 @@ h1:focus {
         content: "An error has occurred."
     }
 
-.darker-border-checkbox.form-check-input {
-    border-color: #929292;
-}
-
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-    color: var(--bs-secondary-color);
-    text-align: end;
-}
-
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-    text-align: start;
-}
+/* Forms and messages (Login.razor stays static SSR / plain HTML, so it keeps its own hand-written styles) */
+.login { max-width: 22rem; }
+.login label { display: block; margin-top: 0.75rem; }
+.login input:not([type=checkbox]) { display: block; width: 100%; box-sizing: border-box; padding: 0.4rem; margin-top: 0.25rem; }
+.login label.checkbox { display: flex; align-items: center; gap: 0.4rem; }
+.login button { margin-top: 1rem; }
+.error { color: #b32121; }
+.hint { color: #555; }

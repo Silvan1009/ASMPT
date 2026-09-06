@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Service.Api.Models;
 using Service.Api.Services;
@@ -6,6 +7,8 @@ namespace Service.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
 public sealed class EchoController(IEchoService echoService) : ControllerBase
 {
     /// <summary>

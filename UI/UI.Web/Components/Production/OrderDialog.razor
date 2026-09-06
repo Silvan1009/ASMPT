@@ -1,0 +1,150 @@
+@inject IServiceApiClient Api
+@inject ILogger<OrderDialog> Logger
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+        }
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="_name" Label="Name" Required="true" RequiredError="Name is required" MaxLength="200" Immediate="true"
+                          Error="@HasError("Name")" ErrorText="@ErrorText("Name")" />
+            <MudTextField @bind-Value="_description" Label="Description" Lines="3" MaxLength="2000" Class="mt-3"
+                          Error="@HasError("Description")" ErrorText="@ErrorText("Description")" />
+            <MudDatePicker @bind-Date="_orderDate" Label="Order date" Required="true" Editable="true" DateFormat="yyyy-MM-dd" Class="mt-3"
+                           Error="@HasError("OrderDate")" ErrorText="@ErrorText("OrderDate")" />
+            <MudSelect T="Guid" @bind-SelectedValues="_boardIds" MultiSelection="true" SelectAll="true" SelectAllText="Select all"
+                       Label="Boards" Required="true" RequiredError="Select at least one board" Class="mt-3"
+                       ToStringFunc="@(id => _boardNames.GetValueOrDefault(id, id.ToString()))"
+                       Error="@HasError("BoardIds")" ErrorText="@ErrorText("BoardIds")">
+                @foreach (var board in _boards)
+                {
+                    <MudSelectItem T="Guid" Value="@board.Id">@board.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_boards.Count == 0 && _error is null)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">No boards yet: create boards on the Boards tab first.</MudText>
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Existing order to edit; null creates a new one.</summary>
+    [Parameter]
+    public OrderDto? Order { get; set; }
+
+    private MudForm _form = default!;
+    private string _name = "";
+    private string? _description;
+    private DateTime? _orderDate = DateTime.Today;
+    private IReadOnlyCollection<Guid>? _boardIds = [];
+    private ICollection<BoardDto> _boards = [];
+    private Dictionary<Guid, string> _boardNames = [];
+    private IDictionary<string, ICollection<string>>? _fieldErrors;
+    private string? _error;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Order is not null)
+        {
+            _name = Order.Name;
+            _description = Order.Description;
+            _orderDate = Order.OrderDate.ToDateTime(TimeOnly.MinValue);
+        }
+
+        // Load the board names before setting the pre-selected ids below: OnInitializedAsync's first
+        // (pre-await) render already shows MudSelect's SelectedValues, and MudSelect only resolves each
+        // selected value's display text once, at that point. Setting _boardIds before _boardNames is ready
+        // would freeze the summary text on the raw ids.
+        try
+        {
+            _boards = await Api.GetBoardsAsync();
+            _boardNames = _boards.ToDictionary(b => b.Id, b => b.Name);
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            Logger.LogError(ex, "Loading boards for the order dialog failed");
+            _error = "Boards could not be loaded. Close the dialog and try again.";
+            return;
+        }
+
+        if (Order is not null)
+        {
+            _boardIds = Order.Boards.Select(b => b.Id).ToList();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid || _orderDate is null)
+        {
+            return;
+        }
+
+        var request = new OrderRequest
+        {
+            Name = _name.Trim(),
+            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            OrderDate = DateOnly.FromDateTime(_orderDate.Value),
+            BoardIds = (_boardIds ?? []).ToList(),
+        };
+
+        _saving = true;
+        _error = null;
+        _fieldErrors = null;
+        try
+        {
+            var saved = Order is null
+                ? await Api.CreateOrderAsync(request)
+                : await Api.UpdateOrderAsync(Order.Id, request);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            HandleSaveFailure(ex);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void HandleSaveFailure(Exception ex)
+    {
+        if (ApiErrors.IsSessionExpired(ex))
+        {
+            _error = "Your session has expired. Reload the page to sign in again.";
+            return;
+        }
+
+        if (ApiErrors.TryGetFieldErrors(ex) is { } fieldErrors)
+        {
+            _fieldErrors = fieldErrors;
+            var unmatched = fieldErrors.Where(e => !KnownFields.Contains(e.Key, StringComparer.OrdinalIgnoreCase)).SelectMany(e => e.Value).ToList();
+            _error = unmatched.Count > 0 ? string.Join(" ", unmatched) : "Please correct the highlighted fields.";
+            return;
+        }
+
+        Logger.LogError(ex, "Saving the order failed");
+        _error = ApiErrors.Describe(ex, "Saving failed. Please try again.");
+    }
+
+    private static readonly string[] KnownFields = ["Name", "Description", "OrderDate", "BoardIds"];
+
+    private bool HasError(string field) => ErrorText(field) is not null;
+
+    private string? ErrorText(string field) => _fieldErrors?
+        .FirstOrDefault(e => string.Equals(e.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
+}

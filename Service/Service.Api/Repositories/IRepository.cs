@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace Service.Api.Repositories;
 
 /// <summary>
@@ -8,6 +10,8 @@ namespace Service.Api.Repositories;
 public interface IRepository<TEntity> where TEntity : class
 {
     Task<TEntity?> GetByIdAsync(object id, CancellationToken cancellationToken = default);
+
+    Task<TEntity?> FirstOrDefaultAsync(Expression<Func<TEntity, bool>> predicate, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<TEntity>> GetAllAsync(CancellationToken cancellationToken = default);
 

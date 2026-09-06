@@ -1,0 +1,101 @@
+# Local development stack: Firebase Auth emulator, PostgreSQL, the Service API and the Blazor UI.
+#   dotnet dev-certs https -ep certs/aspnetapp.pfx -p changeit   once: the UI container serves HTTPS with your dev certificate
+#   docker compose up -d --build                                  start everything
+#   docker compose up -d --build firebase-auth postgres           infrastructure only (apps via dotnet run, see README.md)
+#   docker compose down                                           stop; data stays in the named volumes
+#   docker compose down -v                                        stop and discard data (emulator seed and migrations are re-applied)
+# All services restart automatically after a Docker or machine restart until you stop them yourself.
+name: asmpt
+
+services:
+  firebase-auth:
+    build: ./docker/firebase-auth-emulator
+    image: asmpt/firebase-auth-emulator
+    container_name: asmpt-firebase-auth
+    restart: unless-stopped
+    environment:
+      FIREBASE_PROJECT: demo-asmpt
+    ports:
+      - "9099:9099"   # Auth emulator (REST API + SDK endpoint)
+      - "4000:4000"   # Emulator UI
+    volumes:
+      - ./docker/firebase-auth-emulator/seed:/srv/firebase/seed:ro   # accounts imported on first start
+      - firebase-auth-data:/srv/firebase/data                         # export written on shutdown
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9099/"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  postgres:
+    image: postgres:17
+    container_name: asmpt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: asmpt
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres   # matches ConnectionStrings:DefaultConnection in Service.Api
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d asmpt"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  service:
+    build:
+      context: .
+      dockerfile: Service/Service.Api/Dockerfile
+    image: asmpt/service-api
+    container_name: asmpt-service
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development   # Swagger UI and the emulator switch are Development-only
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=asmpt;Username=postgres;Password=postgres
+      Database__MigrateOnStartup: "true"    # apply pending EF Core migrations at start-up (local stack only)
+      Firebase__ProjectId: demo-asmpt
+      Firebase__EmulatorHost: firebase-auth:9099
+    ports:
+      - "5073:8080"   # http://localhost:5073/swagger
+    depends_on:
+      postgres:
+        condition: service_healthy
+      firebase-auth:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: .
+      dockerfile: UI/UI.Web/Dockerfile
+    image: asmpt/ui-web
+    container_name: asmpt-ui
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTPS_PORTS: "8081"        # Kestrel listens for TLS here (plus HTTP on 8080, the image default)
+      ASPNETCORE_HTTPS_PORT: "7176"         # target of the HTTP -> HTTPS redirect, as seen from the host
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /https/aspnetapp.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: ${DEV_CERT_PASSWORD:-changeit}
+      ServiceApi__BaseUrl: http://service:8080   # container-to-container, inside the compose network
+      Firebase__ProjectId: demo-asmpt
+      Firebase__ApiKey: demo-api-key
+      Firebase__EmulatorHost: firebase-auth:9099
+    ports:
+      - "7176:8081"   # https://localhost:7176, the same URL and certificate as `dotnet run` (TLS only: plain http:// on this port gets an empty response)
+      - "5131:8080"   # http://localhost:5131 redirects to https://localhost:7176, like the `dotnet run` profile
+    volumes:
+      - ./certs:/https:ro                                             # exported dev certificate (git-ignored)
+      - ui-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys  # cookies survive container restarts
+    depends_on:
+      service:
+        condition: service_started
+      firebase-auth:
+        condition: service_healthy
+
+volumes:
+  firebase-auth-data:
+  postgres-data:
+  ui-dataprotection-keys:

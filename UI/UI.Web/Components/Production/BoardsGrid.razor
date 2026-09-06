@@ -1,0 +1,140 @@
+@inject IServiceApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject ILogger<BoardsGrid> Logger
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudTextField @bind-Value="_search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
+                  Placeholder="Search name or description" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mud-width-full" />
+    <MudSpacer />
+    <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenDialogAsync(null))">Add board</MudButton>
+    <MudButton StartIcon="@Icons.Material.Filled.Delete" Variant="Variant.Outlined" Color="Color.Error"
+               Disabled="@(_selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@_selected.Count)</MudButton>
+</MudStack>
+
+@if (_sessionExpired)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">Your session has expired. <MudLink Href="/production">Reload the page</MudLink> to sign in again.</MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+}
+
+<MudDataGrid T="BoardDto" Items="_boards" Loading="_loading" MultiSelection="true" SelectOnRowClick="false"
+             @bind-SelectedItems="_selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
+    <Columns>
+        <SelectColumn T="BoardDto" />
+        <PropertyColumn Property="x => x.Name" Title="Name" />
+        <PropertyColumn Property="x => x.Description" Title="Description" />
+        <PropertyColumn Property="x => x.Length" Title="Length (mm)" Format="F2" />
+        <PropertyColumn Property="x => x.Width" Title="Width (mm)" Format="F2" />
+        <TemplateColumn Title="Components" Sortable="false">
+            <CellTemplate>@string.Join(", ", context.Item.Components.Select(c => c.Name))</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Orders" Sortable="false">
+            <CellTemplate>@string.Join(", ", context.Item.Orders.Select(o => o.Name))</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Sortable="false" CellClass="d-flex justify-end">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="@(() => OpenDialogAsync(context.Item))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" title="Delete" OnClick="@(() => DeleteAsync(context.Item))" />
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>No boards found.</NoRecordsContent>
+</MudDataGrid>
+
+@code {
+    private List<BoardDto> _boards = [];
+    private HashSet<BoardDto> _selected = [];
+    private string _search = "";
+    private bool _loading = true;
+    private bool _sessionExpired;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _boards = [.. await Api.GetBoardsAsync(string.IsNullOrWhiteSpace(_search) ? null : _search)];
+            _selected = [];
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Loading boards failed.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenDialogAsync(BoardDto? board)
+    {
+        var parameters = new DialogParameters<BoardDialog> { { x => x.Board, board } };
+        var dialog = await DialogService.ShowAsync<BoardDialog>(board is null ? "New board" : "Edit board", parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add(board is null ? "Board created." : "Board saved.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(BoardDto board)
+    {
+        if (await DialogService.ShowMessageBoxAsync("Delete board", $"Delete \"{board.Name}\"? It will be removed from any orders that use it.", yesText: "Delete", cancelText: "Cancel") != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteBoardAsync(board.Id);
+            Snackbar.Add("Board deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Deleting the board failed.");
+        }
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        var ids = _selected.Select(b => b.Id).ToList();
+        if (await DialogService.ShowMessageBoxAsync("Delete boards", $"Delete {ids.Count} selected board(s)? They will be removed from any orders that use them.", yesText: "Delete", cancelText: "Cancel") != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteBoardsAsync(new BatchDeleteRequest { Ids = ids });
+            Snackbar.Add($"{ids.Count} board(s) deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Deleting the boards failed.");
+        }
+    }
+
+    private void ShowError(Exception ex, string message)
+    {
+        if (ApiErrors.IsSessionExpired(ex))
+        {
+            _sessionExpired = true;
+            return;
+        }
+
+        Logger.LogError(ex, "{Message}", message);
+        _error = message;
+    }
+}

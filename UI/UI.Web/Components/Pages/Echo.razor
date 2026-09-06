@@ -1,36 +1,39 @@
 @page "/echo"
-@rendermode InteractiveServer
-@using UI.Web.ApiClient
 @inject IServiceApiClient ServiceApiClient
 
 <PageTitle>Echo</PageTitle>
 
-<h1>Echo</h1>
+<MudText Typo="Typo.h4" GutterBottom="true">Echo</MudText>
 
-<p>
+<MudText Class="mb-4">
     Sends the message below to the Service's <code>GET /api/Echo</code> endpoint using the
     NSwag-generated <code>ServiceApiClient</code> and displays what comes back.
-</p>
+</MudText>
 
-<div class="mb-3">
-    <input @bind="_message" @bind:event="oninput" placeholder="Type a message..." />
-    <button @onclick="SendAsync" disabled="@_isSending">Send</button>
-</div>
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudTextField @bind-Value="_message" Placeholder="Type a message..." Immediate="true" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mud-width-full" />
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SendAsync" Disabled="_isSending">Send</MudButton>
+</MudStack>
 
 @if (_result is not null)
 {
-    <p>Response: <strong>@_result.Message</strong></p>
+    <MudText>Response: <strong>@_result.Message</strong></MudText>
 }
 
-@if (_error is not null)
+@if (_sessionExpired)
 {
-    <p style="color:red">Error: @_error</p>
+    <MudAlert Severity="Severity.Warning" Class="mt-3">Your session has expired. <MudLink Href="/echo">Reload the page</MudLink> to sign in again.</MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-3">Error: @_error</MudAlert>
 }
 
 @code {
     private string _message = string.Empty;
     private EchoResponse? _result;
     private string? _error;
+    private bool _sessionExpired;
     private bool _isSending;
 
     private async Task SendAsync()
@@ -40,6 +43,12 @@
         try
         {
             _result = await ServiceApiClient.EchoAsync(_message);
+        }
+        catch (Exception ex) when (ex is SessionInvalidException || ex is ApiException { StatusCode: 401 })
+        {
+            // An interactive circuit cannot clear the cookie; the next full request runs the cookie
+            // validation, which signs the user out and redirects to the login page.
+            _sessionExpired = true;
         }
         catch (Exception ex)
         {

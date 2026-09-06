@@ -1,0 +1,182 @@
+@inject IServiceApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject ILogger<OrdersGrid> Logger
+@implements IAsyncDisposable
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudTextField @bind-Value="_search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
+                  Placeholder="Search name or description" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mud-width-full" />
+    <MudSpacer />
+    <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenDialogAsync(null))">Add order</MudButton>
+    <MudButton StartIcon="@Icons.Material.Filled.Delete" Variant="Variant.Outlined" Color="Color.Error"
+               Disabled="@(_selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@_selected.Count)</MudButton>
+</MudStack>
+
+@if (_sessionExpired)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-3">Your session has expired. <MudLink Href="/production">Reload the page</MudLink> to sign in again.</MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+}
+
+<MudDataGrid T="OrderDto" Items="_orders" Loading="_loading" MultiSelection="true" SelectOnRowClick="false"
+             @bind-SelectedItems="_selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
+    <Columns>
+        <SelectColumn T="OrderDto" />
+        <PropertyColumn Property="x => x.Name" Title="Name" />
+        <PropertyColumn Property="x => x.Description" Title="Description" />
+        <PropertyColumn Property="x => x.OrderDate" Title="Order date" Format="yyyy-MM-dd" />
+        <TemplateColumn Title="Boards" Sortable="false">
+            <CellTemplate>@string.Join(", ", context.Item.Boards.Select(b => b.Name))</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Sortable="false" CellClass="d-flex justify-end">
+            <CellTemplate>
+                <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small" title="Download" OnClick="@(() => DownloadAsync(context.Item))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" title="Edit" OnClick="@(() => OpenDialogAsync(context.Item))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" title="Delete" OnClick="@(() => DeleteAsync(context.Item))" />
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+    <NoRecordsContent>No orders found.</NoRecordsContent>
+</MudDataGrid>
+
+@code {
+    private List<OrderDto> _orders = [];
+    private HashSet<OrderDto> _selected = [];
+    private string _search = "";
+    private bool _loading = true;
+    private bool _sessionExpired;
+    private string? _error;
+    private IJSObjectReference? _downloadModule;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            _orders = [.. await Api.GetOrdersAsync(string.IsNullOrWhiteSpace(_search) ? null : _search)];
+            _selected = [];
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Loading orders failed.");
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OpenDialogAsync(OrderDto? order)
+    {
+        var parameters = new DialogParameters<OrderDialog> { { x => x.Order, order } };
+        var dialog = await DialogService.ShowAsync<OrderDialog>(order is null ? "New order" : "Edit order", parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add(order is null ? "Order created." : "Order saved.", Severity.Success);
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeleteAsync(OrderDto order)
+    {
+        if (await DialogService.ShowMessageBoxAsync("Delete order", $"Delete \"{order.Name}\"?", yesText: "Delete", cancelText: "Cancel") != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteOrderAsync(order.Id);
+            Snackbar.Add("Order deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Deleting the order failed.");
+        }
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        var ids = _selected.Select(o => o.Id).ToList();
+        if (await DialogService.ShowMessageBoxAsync("Delete orders", $"Delete {ids.Count} selected order(s)?", yesText: "Delete", cancelText: "Cancel") != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.DeleteOrdersAsync(new BatchDeleteRequest { Ids = ids });
+            Snackbar.Add($"{ids.Count} order(s) deleted.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            ShowError(ex, "Deleting the orders failed.");
+        }
+    }
+
+    private async Task DownloadAsync(OrderDto order)
+    {
+        try
+        {
+            using var file = await Api.DownloadOrderAsync(order.Id);
+            _downloadModule ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/download.js");
+            using var streamRef = new DotNetStreamReference(file.Stream);
+            await _downloadModule.InvokeVoidAsync("downloadFileFromStream", FileNameFrom(file) ?? $"order-{order.Id}.json", streamRef);
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex) || ex is JSException)
+        {
+            ShowError(ex, "Downloading the order failed.");
+        }
+    }
+
+    private static string? FileNameFrom(FileResponse file)
+    {
+        if (!file.Headers.TryGetValue("Content-Disposition", out var values))
+        {
+            return null;
+        }
+
+        return System.Net.Http.Headers.ContentDispositionHeaderValue.TryParse(values.FirstOrDefault(), out var disposition)
+            ? disposition.FileNameStar ?? disposition.FileName?.Trim('"')
+            : null;
+    }
+
+    private void ShowError(Exception ex, string message)
+    {
+        if (ApiErrors.IsSessionExpired(ex))
+        {
+            _sessionExpired = true;
+            return;
+        }
+
+        Logger.LogError(ex, "{Message}", message);
+        _error = message;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_downloadModule is not null)
+            {
+                await _downloadModule.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit is already gone (e.g. the tab was closed); nothing to clean up on the client.
+        }
+    }
+}

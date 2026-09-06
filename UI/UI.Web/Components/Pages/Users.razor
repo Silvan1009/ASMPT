@@ -1,0 +1,65 @@
+@page "/users"
+@attribute [Authorize(Policy = AuthorizationPolicies.Admin)]
+@inject IServiceApiClient Api
+@inject ILogger<Users> Logger
+
+<PageTitle>Users</PageTitle>
+
+<MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
+<MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">Accounts are managed in Firebase; this table is synchronised from the ID token whenever a user logs in.</MudText>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error">@_error</MudAlert>
+}
+else
+{
+    <MudTable Items="_users" Dense="true" Hover="true" Elevation="1" Loading="_loading">
+        <HeaderContent>
+            <MudTh>Email</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Verified</MudTh>
+            <MudTh>Created (UTC)</MudTh>
+            <MudTh>Last login (UTC)</MudTh>
+            <MudTh>Firebase UID</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Email">@context.Email</MudTd>
+            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+            <MudTd DataLabel="Role">@context.Role</MudTd>
+            <MudTd DataLabel="Verified">@(context.EmailVerified ? "yes" : "no")</MudTd>
+            <MudTd DataLabel="Created (UTC)">@context.CreatedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd DataLabel="Last login (UTC)">@context.LastLoginAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd DataLabel="Firebase UID"><code>@context.FirebaseUid</code></MudTd>
+        </RowTemplate>
+        <NoRecordsContent>No users have logged in yet.</NoRecordsContent>
+    </MudTable>
+}
+
+@code {
+    private ICollection<UserDto> _users = [];
+    private bool _loading = true;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _users = await Api.GetUsersAsync();
+        }
+        catch (ApiException ex) when (ex.StatusCode == 403)
+        {
+            _error = "You are not allowed to view the user list.";
+        }
+        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
+        {
+            Logger.LogError(ex, "Loading the user list failed");
+            _error = "The user list could not be loaded. Please try again later.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}
