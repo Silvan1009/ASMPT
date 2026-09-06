@@ -1,4 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
+using Service.Api.Data;
+using Service.Api.Repositories;
+using Service.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +15,14 @@ builder.Services.AddOpenApi(options =>
     // Pin to OpenAPI 3.0 for broad tooling compatibility (e.g. NSwag client generation).
     options.OpenApiVersion = OpenApiSpecVersion.OpenApi3_0;
 });
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Generic repository, ready for use once entities are added to ApplicationDbContext.
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+
+builder.Services.AddScoped<IEchoService, EchoService>();
 
 var app = builder.Build();
 

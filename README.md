@@ -37,6 +37,33 @@ dotnet run --project UI/UI.Web             # https://localhost:7176 — see /ech
 The UI reads the Service's base URL from `UI/UI.Web/appsettings.json` (`ServiceApi:BaseUrl`,
 defaults to `https://localhost:7168` to match the Service's default launch profile).
 
+## Data access and testability
+
+The Service is wired up for EF Core against PostgreSQL, structured so business logic never talks
+to EF Core directly:
+
+- `Data/ApplicationDbContext.cs` — the `DbContext`. It has no `DbSet` properties yet; add them as
+  persisted features are introduced.
+- `Repositories/IRepository.cs` + `Repository.cs` — a generic repository interface over
+  `ApplicationDbContext`, registered as an open generic (`IRepository<TEntity>` resolves for any
+  entity with no per-entity DI wiring). Business logic depends on `IRepository<T>`, not the
+  `DbContext`, so it can be unit-tested against a mock/fake repository.
+- `Services/IEchoService.cs` + `EchoService.cs` — the same pattern applied to the one feature that
+  exists today: `EchoController` depends on `IEchoService`, not a concrete class, so the controller
+  and the service can each be unit-tested in isolation.
+
+Connection string lives in `appsettings.json` under `ConnectionStrings:DefaultConnection`, pointing
+at a local Postgres instance (`Host=localhost;Port=5432;Database=asmpt;Username=postgres;Password=postgres`)
+— update it for your environment, or override it via `appsettings.Development.json` / user secrets.
+
+An initial (empty) migration is already committed under `Data/Migrations/`, proving the EF Core
+tooling pipeline works end to end. Once real entities are added:
+
+```bash
+dotnet ef migrations add <Name> --project Service/Service.Api --output-dir Data/Migrations
+dotnet ef database update --project Service/Service.Api   # requires a reachable Postgres instance
+```
+
 ## Note on OpenAPI version
 
 The Service pins its *runtime-served* document (`/openapi/v1.json`, and Swagger UI) to OpenAPI 3.0
