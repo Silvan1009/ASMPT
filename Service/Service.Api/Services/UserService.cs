@@ -6,7 +6,7 @@ using Service.Api.Repositories;
 
 namespace Service.Api.Services;
 
-public sealed class UserService(IRepository<User> users, TimeProvider clock) : IUserService
+public sealed class UserService(IRepository<User> users, TimeProvider clock, ILogger<UserService> logger) : IUserService
 {
     public async Task<UserDto> SyncCurrentUserAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
     {
@@ -16,6 +16,7 @@ public sealed class UserService(IRepository<User> users, TimeProvider clock) : I
         var now = clock.GetUtcNow();   // zero offset: required by Npgsql for timestamptz columns
 
         var user = await users.FirstOrDefaultAsync(u => u.FirebaseUid == uid, cancellationToken);
+        var isNewUser = user is null;
         if (user is null)
         {
             user = new User
@@ -36,6 +37,8 @@ public sealed class UserService(IRepository<User> users, TimeProvider clock) : I
         user.LastLoginAt = now;
 
         await users.SaveChangesAsync(cancellationToken);
+        // Email is never logged: the uid is the stable, non-personal identifier for this user in the logs.
+        logger.LogInformation("User {Uid} synchronised ({Outcome})", uid, isNewUser ? "created" : "updated");
         return ToDto(user);
     }
 

@@ -223,6 +223,74 @@ dotnet ef migrations add <Name> --project Service/Service.Api --output-dir Data/
 dotnet ef database update --project Service/Service.Api   # requires a reachable Postgres instance
 ```
 
+## Logging and error tracing
+
+Both apps log through [Serilog](https://serilog.net) instead of the default Microsoft console logger,
+configured entirely from the `Serilog` section of `appsettings.json` (the `Logging` section is unused once
+Serilog is added). Every log line carries the current [W3C trace id](https://www.w3.org/TR/trace-context/) as
+its `{TraceId}` column — the same id ASP.NET Core already writes into every RFC 7807 problem response as
+`traceId`, and the value shown to the user as an "error reference" (in the `/production` grid and dialog
+alerts, on the Echo page, in the layout's error banner, and on `/Error`). The UI forwards the W3C `traceparent`
+header on every call to the Service — `Logging/TraceCircuitHandler.cs` gives each Blazor circuit interaction
+its own trace, since SignalR would otherwise clear it on every hub invocation — so one reference finds the
+matching lines in **both** apps' log files.
+
+**Where the files are.** The path in `appsettings.json` (`logs/service-api-.log`, `logs/ui-web-.log`) is
+relative to the process's working directory, not the project folder:
+
+| Run mode | Service | UI |
+|---|---|---|
+| `dotnet run` | `Service/Service.Api/logs/` | `UI/UI.Web/logs/` |
+| `docker compose up` | `./logs/service/` on the host (bind-mounted) | `./logs/ui/` on the host (bind-mounted) |
+
+Both locations are git-ignored. `dotnet build` and `dotnet ef` never create a `logs/` directory: the Service
+skips `AddSerilog` when it detects it is running under design-time tooling (the same
+`isRunningUnderTooling` check `Program.cs` already uses for start-up validation), so a build or a migration
+never writes log files into the source tree.
+
+**Format.** Console output is a short human-readable line; the file adds full timestamps and
+machine-readable `{Properties:j}` — whatever isn't already in the message or template, e.g. `UserId`,
+`CircuitId`, `RequestId` — and rolls daily or every 50 MB, keeping the last 31 files. Example file line
+(a failed request, both apps write this shape):
+
+```
+[2026-09-08 14:32:07.114 +00:00] INF a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6 Serilog.AspNetCore.RequestLoggingMiddleware: HTTP POST /api/Orders responded 400 in 12.3401 ms {"UserId":"KJ3n...","RequestId":"0HN..."}
+```
+
+To find every line for one failure, search both apps' files for the trace id shown to the user:
+
+```powershell
+Select-String -Path UI/UI.Web/logs/*.log, Service/Service.Api/logs/*.log -Pattern <trace-id>
+```
+
+**What is never logged.** Names, descriptions, search terms and any other user-entered text; email addresses
+(users are identified by their Firebase uid instead); passwords, Firebase ID tokens and refresh tokens. SQL
+parameter values (`EnableSensitiveDataLogging`) are logged only in `Development`, which includes the Docker
+Compose stack — it always runs with `ASPNETCORE_ENVIRONMENT=Development`.
+
+**Configuration knobs**, overridable through environment variables (`__` separates segments, as with any
+other `IConfiguration` key) or `appsettings.Development.json`:
+
+| Key | Purpose |
+|---|---|
+| `Serilog__MinimumLevel__Default` | Baseline level (`Information`) |
+| `Serilog__MinimumLevel__Override__<category>` | Per-category override, e.g. `Microsoft.EntityFrameworkCore.Database.Command` |
+| `Serilog__WriteTo__FileSink__Args__configure__0__Args__path` | The rolling file's path/prefix |
+| `Serilog__WriteTo__FileSink__Args__blockWhenFull` | `true` blocks the app rather than dropping events when the file sink falls behind (default `false`: availability over completeness) |
+
+**Adding a central sink** (Seq, an OTLP collector, etc.) later needs no code change: add the sink's NuGet
+package, list its assembly under `Serilog:Using`, and add a keyed entry under `Serilog:WriteTo` (see the
+existing `ConsoleSink`/`FileSink` entries for the shape). **Switching the file to**
+[CLEF](https://clef-json.org/) (for a log shipper that expects JSON) means *replacing* the File sink's
+`outputTemplate` with a `formatter`:
+
+```json
+"formatter": "Serilog.Formatting.Compact.CompactJsonFormatter, Serilog.Formatting.Compact"
+```
+
+Setting both is a trap: Serilog.Settings.Configuration resolves the method overload with the most matching
+argument names, `outputTemplate` wins silently, and `formatter` is ignored.
+
 ## Note on OpenAPI version
 
 The Service pins its *runtime-served* document (`/openapi/v1.json`, and Swagger UI) to OpenAPI 3.0

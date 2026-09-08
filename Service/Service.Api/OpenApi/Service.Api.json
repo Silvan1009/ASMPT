@@ -2043,6 +2043,7 @@
       "OrderRequest": {
         "required": [
           "name",
+          "orderDate",
           "boardIds"
         ],
         "type": "object",
@@ -2061,7 +2062,10 @@
             ]
           },
           "orderDate": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "date"
           },
           "boardIds": {

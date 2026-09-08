@@ -4,7 +4,7 @@ using Service.Api.Repositories;
 
 namespace Service.Api.Services;
 
-public sealed class ComponentService(IComponentRepository components) : IComponentService
+public sealed class ComponentService(IComponentRepository components, ILogger<ComponentService> logger) : IComponentService
 {
     public async Task<IReadOnlyList<ComponentDto>> SearchAsync(string? search, CancellationToken cancellationToken = default)
         => (await components.SearchAsync(search, cancellationToken)).Select(ToDto).ToList();
@@ -16,13 +16,14 @@ public sealed class ComponentService(IComponentRepository components) : ICompone
     {
         var component = new Component
         {
-            Name = request.Name.Trim(),
-            Description = Normalize(request.Description),
+            Name = RequestText.Required(request.Name),
+            Description = RequestText.Optional(request.Description),
             Quantity = request.Quantity,
         };
 
         await components.AddAsync(component, cancellationToken);
         await components.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Component {ComponentId} created", component.Id);
         return ToDto(component);
     }
 
@@ -34,21 +35,31 @@ public sealed class ComponentService(IComponentRepository components) : ICompone
             return null;
         }
 
-        component.Name = request.Name.Trim();
-        component.Description = Normalize(request.Description);
+        component.Name = RequestText.Required(request.Name);
+        component.Description = RequestText.Optional(request.Description);
         component.Quantity = request.Quantity;
 
         await components.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Component {ComponentId} updated", component.Id);
         return ToDto(component);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-        => await components.DeleteByIdsAsync([id], cancellationToken) == 1;
+    {
+        var deleted = await components.DeleteByIdsAsync([id], cancellationToken) == 1;
+        if (deleted)
+        {
+            logger.LogInformation("Component {ComponentId} deleted", id);
+        }
 
-    public Task DeleteManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
-        => components.DeleteByIdsAsync(ids, cancellationToken);
+        return deleted;
+    }
 
-    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    public async Task DeleteManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        var deleted = await components.DeleteByIdsAsync(ids, cancellationToken);
+        logger.LogInformation("Deleted {Deleted} of {Requested} component(s)", deleted, ids.Count);
+    }
 
     private static ComponentDto ToDto(Component component) => new(
         component.Id,

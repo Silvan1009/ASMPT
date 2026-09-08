@@ -143,8 +143,10 @@ public sealed class FirebaseAuthClient(
             var colon = message.IndexOf(':');
             return (colon > 0 ? message[..colon] : message).Trim();
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
+            // Not a Firebase error envelope (malformed JSON, or an HTML error page from a proxy): the caller
+            // treats an unknown code as a transient failure.
             return "";
         }
     }

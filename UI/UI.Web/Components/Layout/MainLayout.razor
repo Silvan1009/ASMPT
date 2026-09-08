@@ -34,7 +34,16 @@
     </MudAppBar>
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="py-6">
-            @Body
+            <ErrorBoundary @ref="_errorBoundary">
+                <ChildContent>@Body</ChildContent>
+                <ErrorContent>
+                    <MudAlert Severity="Severity.Error" Class="mb-3">
+                        Something went wrong. Try again; if it keeps happening, quote this error reference:
+                        <code>@(System.Diagnostics.Activity.Current?.TraceId.ToHexString() ?? "unavailable")</code>
+                        <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="ml-2" OnClick="@(() => _errorBoundary?.Recover())">Try again</MudButton>
+                    </MudAlert>
+                </ErrorContent>
+            </ErrorBoundary>
         </MudContainer>
     </MudMainContent>
 </MudLayout>
@@ -46,5 +55,10 @@
 </div>
 
 @code {
+    private ErrorBoundary? _errorBoundary;
+
     private string CurrentPath => "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+
+    // A navigation replaces Body with a new page; leave the previous page's error state behind.
+    protected override void OnParametersSet() => _errorBoundary?.Recover();
 }

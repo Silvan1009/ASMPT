@@ -90,6 +90,8 @@
             principal,
             new AuthenticationProperties { IsPersistent = input.RememberMe });
 
+        Logger.LogInformation("User {Uid} signed in", session.Uid);
+
         // Makes the new identity and its ID token visible to the Service API client within this request.
         TokenProvider.UseSession(principal, session);
         await SyncUserAsync(session.Uid, cancellationToken);

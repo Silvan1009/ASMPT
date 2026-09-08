@@ -12,5 +12,8 @@ obj/
 .DS_Store
 Thumbs.db
 
+## Serilog log files (dotnet run: <project>/logs; docker compose: ./logs/<app>, see README)
+logs/
+
 ## HTTPS development certificate exported for the Docker stack (see README)
 certs/

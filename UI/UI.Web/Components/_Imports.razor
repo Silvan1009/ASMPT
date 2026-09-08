@@ -16,8 +16,5 @@
 @using UI.Web.Components.Layout
 @using UI.Web.Components.Production
 @using UI.Web.Components.Shared
-@* Microsoft.AspNetCore.Http (a Web SDK implicit global using) also defines HttpValidationProblemDetails;
-   alias the generated client's type so Razor files can catch/reference it without a CS0104 clash. *@
-@using ValidationProblemDetails = UI.Web.ApiClient.HttpValidationProblemDetails
 @* Every routable component requires a signed-in user unless it opts out with [AllowAnonymous]. *@
 @attribute [Authorize]

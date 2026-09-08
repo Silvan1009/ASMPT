@@ -1,31 +1,20 @@
-@inject IServiceApiClient Api
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
+@inherits ProductionGridBase<OrderDto>
 @inject IJSRuntime JS
-@inject ILogger<OrdersGrid> Logger
-@implements IAsyncDisposable
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-    <MudTextField @bind-Value="_search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
+    <MudTextField @bind-Value="Search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
                   Placeholder="Search name or description" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mud-width-full" />
     <MudSpacer />
     <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenDialogAsync(null))">Add order</MudButton>
     <MudButton StartIcon="@Icons.Material.Filled.Delete" Variant="Variant.Outlined" Color="Color.Error"
-               Disabled="@(_selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@_selected.Count)</MudButton>
+               Disabled="@(Selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@Selected.Count)</MudButton>
 </MudStack>
 
-@if (_sessionExpired)
-{
-    <MudAlert Severity="Severity.Warning" Class="mb-3">Your session has expired. <MudLink Href="/production">Reload the page</MudLink> to sign in again.</MudAlert>
-}
-else if (_error is not null)
-{
-    <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
-}
+<ApiStatusAlert SessionExpired="SessionExpired" Error="@Error" Reference="@ErrorReference" ReloadHref="/production" />
 
-<MudDataGrid T="OrderDto" Items="_orders" Loading="_loading" MultiSelection="true" SelectOnRowClick="false"
-             @bind-SelectedItems="_selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
+<MudDataGrid T="OrderDto" Items="Items" Loading="Loading" MultiSelection="true" SelectOnRowClick="false"
+             @bind-SelectedItems="Selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
     <Columns>
         <SelectColumn T="OrderDto" />
         <PropertyColumn Property="x => x.Name" Title="Name" />
@@ -46,85 +35,23 @@ else if (_error is not null)
 </MudDataGrid>
 
 @code {
-    private List<OrderDto> _orders = [];
-    private HashSet<OrderDto> _selected = [];
-    private string _search = "";
-    private bool _loading = true;
-    private bool _sessionExpired;
-    private string? _error;
     private IJSObjectReference? _downloadModule;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override string EntityName => "order";
 
-    private async Task LoadAsync()
-    {
-        _loading = true;
-        _error = null;
-        try
-        {
-            _orders = [.. await Api.GetOrdersAsync(string.IsNullOrWhiteSpace(_search) ? null : _search)];
-            _selected = [];
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Loading orders failed.");
-        }
-        finally
-        {
-            _loading = false;
-        }
-    }
+    protected override string EntityNamePlural => "orders";
 
-    private async Task OpenDialogAsync(OrderDto? order)
-    {
-        var parameters = new DialogParameters<OrderDialog> { { x => x.Order, order } };
-        var dialog = await DialogService.ShowAsync<OrderDialog>(order is null ? "New order" : "Edit order", parameters);
-        var result = await dialog.Result;
-        if (result is { Canceled: false })
-        {
-            Snackbar.Add(order is null ? "Order created." : "Order saved.", Severity.Success);
-            await LoadAsync();
-        }
-    }
+    protected override async Task<ICollection<OrderDto>> FetchAsync(string? search, CancellationToken cancellationToken)
+        => await Api.GetOrdersAsync(search, cancellationToken);
 
-    private async Task DeleteAsync(OrderDto order)
-    {
-        if (await DialogService.ShowMessageBoxAsync("Delete order", $"Delete \"{order.Name}\"?", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
+    protected override Task DeleteOneAsync(Guid id) => Api.DeleteOrderAsync(id);
 
-        try
-        {
-            await Api.DeleteOrderAsync(order.Id);
-            Snackbar.Add("Order deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the order failed.");
-        }
-    }
+    protected override Task DeleteManyAsync(BatchDeleteRequest request) => Api.DeleteOrdersAsync(request);
 
-    private async Task DeleteSelectedAsync()
-    {
-        var ids = _selected.Select(o => o.Id).ToList();
-        if (await DialogService.ShowMessageBoxAsync("Delete orders", $"Delete {ids.Count} selected order(s)?", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
-
-        try
-        {
-            await Api.DeleteOrdersAsync(new BatchDeleteRequest { Ids = ids });
-            Snackbar.Add($"{ids.Count} order(s) deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the orders failed.");
-        }
-    }
+    protected override Task<IDialogReference> ShowDialogAsync(OrderDto? order)
+        => DialogService.ShowAsync<OrderDialog>(
+            order is null ? "New order" : "Edit order",
+            new DialogParameters<OrderDialog> { { x => x.Order, order } });
 
     private async Task DownloadAsync(OrderDto order)
     {
@@ -153,20 +80,9 @@ else if (_error is not null)
             : null;
     }
 
-    private void ShowError(Exception ex, string message)
+    public override async ValueTask DisposeAsync()
     {
-        if (ApiErrors.IsSessionExpired(ex))
-        {
-            _sessionExpired = true;
-            return;
-        }
-
-        Logger.LogError(ex, "{Message}", message);
-        _error = message;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
+        await base.DisposeAsync();
         try
         {
             if (_downloadModule is not null)

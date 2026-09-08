@@ -1,12 +1,11 @@
 using System.Text.Json;
 using Service.Api.Data.Entities;
-using Service.Api.ErrorHandling;
 using Service.Api.Models;
 using Service.Api.Repositories;
 
 namespace Service.Api.Services;
 
-public sealed class OrderService(IOrderRepository orders, IBoardRepository boards, TimeProvider clock) : IOrderService
+public sealed class OrderService(IOrderRepository orders, IBoardRepository boards, TimeProvider clock, ILogger<OrderService> logger) : IOrderService
 {
     private static readonly JsonSerializerOptions ExportJsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -20,14 +19,15 @@ public sealed class OrderService(IOrderRepository orders, IBoardRepository board
     {
         var order = new Order
         {
-            Name = request.Name.Trim(),
-            Description = Normalize(request.Description),
-            OrderDate = request.OrderDate,
+            Name = RequestText.Required(request.Name),
+            Description = RequestText.Optional(request.Description),
+            OrderDate = OrderDateOf(request),
         };
         order.Boards.AddRange(await ResolveBoardsAsync(request.BoardIds, cancellationToken));
 
         await orders.AddAsync(order, cancellationToken);
         await orders.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Order {OrderId} created with {BoardCount} board(s)", order.Id, order.Boards.Count);
         return ToDto(order);
     }
 
@@ -39,25 +39,35 @@ public sealed class OrderService(IOrderRepository orders, IBoardRepository board
             return null;
         }
 
-        order.Name = request.Name.Trim();
-        order.Description = Normalize(request.Description);
-        order.OrderDate = request.OrderDate;
+        order.Name = RequestText.Required(request.Name);
+        order.Description = RequestText.Optional(request.Description);
+        order.OrderDate = OrderDateOf(request);
 
-        // Diff the skip navigation: EF Core turns removed/added Board instances into deleted/inserted
+        // EF Core turns the boards added to / removed from the skip navigation into inserted / deleted
         // OrderBoards rows on SaveChanges.
-        var wanted = await ResolveBoardsAsync(request.BoardIds, cancellationToken);
-        order.Boards.RemoveAll(existing => wanted.All(w => w.Id != existing.Id));
-        order.Boards.AddRange(wanted.Where(w => order.Boards.All(existing => existing.Id != w.Id)));
+        order.Boards.SyncTo(await ResolveBoardsAsync(request.BoardIds, cancellationToken));
 
         await orders.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Order {OrderId} updated", order.Id);
         return ToDto(order);
     }
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
-        => await orders.DeleteByIdsAsync([id], cancellationToken) == 1;
+    {
+        var deleted = await orders.DeleteByIdsAsync([id], cancellationToken) == 1;
+        if (deleted)
+        {
+            logger.LogInformation("Order {OrderId} deleted", id);
+        }
 
-    public Task DeleteManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
-        => orders.DeleteByIdsAsync(ids, cancellationToken);
+        return deleted;
+    }
+
+    public async Task DeleteManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        var deleted = await orders.DeleteByIdsAsync(ids, cancellationToken);
+        logger.LogInformation("Deleted {Deleted} of {Requested} order(s)", deleted, ids.Count);
+    }
 
     public async Task<OrderExportFile?> ExportAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -73,32 +83,28 @@ public sealed class OrderService(IOrderRepository orders, IBoardRepository board
             order.Description,
             order.OrderDate,
             clock.GetUtcNow(),
-            order.Boards.Select(b => new BoardExportDto(
+            order.Boards.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase).Select(b => new BoardExportDto(
                 b.Id,
                 b.Name,
                 b.Description,
                 b.Length,
                 b.Width,
-                b.Components.Select(c => new ComponentExportDto(c.Id, c.Name, c.Description, c.Quantity)).ToList())).ToList());
+                b.Components.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(c => new ComponentExportDto(c.Id, c.Name, c.Description, c.Quantity))
+                    .ToList())).ToList());
 
         var fileName = $"order-{FileNames.Sanitize(order.Name, order.Id.ToString())}.json";
+        logger.LogInformation("Order {OrderId} exported", order.Id);
         return new OrderExportFile(fileName, JsonSerializer.SerializeToUtf8Bytes(export, ExportJsonOptions));
     }
 
-    private async Task<IReadOnlyList<Board>> ResolveBoardsAsync(IReadOnlyList<Guid> ids, CancellationToken cancellationToken)
-    {
-        var distinct = ids.Distinct().ToArray();
-        var found = await boards.GetByIdsAsync(distinct, cancellationToken);
-        if (found.Count == distinct.Length)
-        {
-            return found;
-        }
+    private Task<IReadOnlyList<Board>> ResolveBoardsAsync(IReadOnlyList<Guid> ids, CancellationToken cancellationToken)
+        => RelatedEntities.ResolveAsync(ids, boards, nameof(OrderRequest.BoardIds), "board", cancellationToken);
 
-        var missing = distinct.Except(found.Select(b => b.Id)).ToArray();
-        throw new RelatedEntitiesNotFoundException(nameof(OrderRequest.BoardIds), "board", missing);
-    }
-
-    private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    /// <summary>Model validation rejects a missing date before the action runs; the check documents the
+    /// contract for callers that bypass MVC.</summary>
+    private static DateOnly OrderDateOf(OrderRequest request)
+        => request.OrderDate ?? throw new ArgumentException("OrderDate is required.", nameof(request));
 
     private static OrderDto ToDto(Order order) => new(
         order.Id,

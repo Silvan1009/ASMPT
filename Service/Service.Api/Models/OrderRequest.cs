@@ -17,7 +17,8 @@ public sealed class OrderRequest
     [StringLength(2000)]
     public string? Description { get; set; }
 
-    public DateOnly OrderDate { get; set; }
+    [Required]
+    public DateOnly? OrderDate { get; set; }
 
     [Required, MinLength(1)]
     public IReadOnlyList<Guid> BoardIds { get; set; } = [];

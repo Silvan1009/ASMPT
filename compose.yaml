@@ -60,6 +60,8 @@ services:
       Firebase__EmulatorHost: firebase-auth:9099
     ports:
       - "5073:8080"   # http://localhost:5073/swagger
+    volumes:
+      - ./logs/service:/app/logs   # Serilog files (git-ignored); named volume service-logs:/app/logs also works
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +91,7 @@ services:
     volumes:
       - ./certs:/https:ro                                             # exported dev certificate (git-ignored)
       - ui-dataprotection-keys:/home/app/.aspnet/DataProtection-Keys  # cookies survive container restarts
+      - ./logs/ui:/app/logs                                           # Serilog files (git-ignored); named volume ui-logs:/app/logs also works
     depends_on:
       service:
         condition: service_started

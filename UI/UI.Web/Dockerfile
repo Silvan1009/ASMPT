@@ -15,7 +15,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app .
 # Data Protection keys (they encrypt the authentication cookie) are persisted here; compose mounts a volume.
-RUN mkdir -p /home/app/.aspnet/DataProtection-Keys && chown -R app:app /home/app/.aspnet
+# The Serilog file sink writes to /app/logs (relative "logs/" in appsettings.json); /app is root-owned.
+RUN mkdir -p /home/app/.aspnet/DataProtection-Keys /app/logs && chown -R app:app /home/app/.aspnet /app/logs
 USER app
 # HTTPS (port 8081) is enabled through environment variables and the mounted development certificate, see compose.yaml.
 ENTRYPOINT ["dotnet", "UI.Web.dll"]

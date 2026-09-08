@@ -1,29 +1,19 @@
-@inject IServiceApiClient Api
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
-@inject ILogger<ComponentsGrid> Logger
+@inherits ProductionGridBase<ComponentDto>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-    <MudTextField @bind-Value="_search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
+    <MudTextField @bind-Value="Search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
                   Placeholder="Search name or description" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mud-width-full" />
     <MudSpacer />
     <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenDialogAsync(null))">Add component</MudButton>
     <MudButton StartIcon="@Icons.Material.Filled.Delete" Variant="Variant.Outlined" Color="Color.Error"
-               Disabled="@(_selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@_selected.Count)</MudButton>
+               Disabled="@(Selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@Selected.Count)</MudButton>
 </MudStack>
 
-@if (_sessionExpired)
-{
-    <MudAlert Severity="Severity.Warning" Class="mb-3">Your session has expired. <MudLink Href="/production">Reload the page</MudLink> to sign in again.</MudAlert>
-}
-else if (_error is not null)
-{
-    <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
-}
+<ApiStatusAlert SessionExpired="SessionExpired" Error="@Error" Reference="@ErrorReference" ReloadHref="/production" />
 
-<MudDataGrid T="ComponentDto" Items="_components" Loading="_loading" MultiSelection="true" SelectOnRowClick="false"
-             @bind-SelectedItems="_selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
+<MudDataGrid T="ComponentDto" Items="Items" Loading="Loading" MultiSelection="true" SelectOnRowClick="false"
+             @bind-SelectedItems="Selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
     <Columns>
         <SelectColumn T="ComponentDto" />
         <PropertyColumn Property="x => x.Name" Title="Name" />
@@ -43,94 +33,21 @@ else if (_error is not null)
 </MudDataGrid>
 
 @code {
-    private List<ComponentDto> _components = [];
-    private HashSet<ComponentDto> _selected = [];
-    private string _search = "";
-    private bool _loading = true;
-    private bool _sessionExpired;
-    private string? _error;
+    protected override string EntityName => "component";
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override string EntityNamePlural => "components";
 
-    private async Task LoadAsync()
-    {
-        _loading = true;
-        _error = null;
-        try
-        {
-            _components = [.. await Api.GetComponentsAsync(string.IsNullOrWhiteSpace(_search) ? null : _search)];
-            _selected = [];
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Loading components failed.");
-        }
-        finally
-        {
-            _loading = false;
-        }
-    }
+    protected override string DeleteWarning => " Deleted components are removed from any boards that use them.";
 
-    private async Task OpenDialogAsync(ComponentDto? component)
-    {
-        var parameters = new DialogParameters<ComponentDialog> { { x => x.Component, component } };
-        var dialog = await DialogService.ShowAsync<ComponentDialog>(component is null ? "New component" : "Edit component", parameters);
-        var result = await dialog.Result;
-        if (result is { Canceled: false })
-        {
-            Snackbar.Add(component is null ? "Component created." : "Component saved.", Severity.Success);
-            await LoadAsync();
-        }
-    }
+    protected override async Task<ICollection<ComponentDto>> FetchAsync(string? search, CancellationToken cancellationToken)
+        => await Api.GetComponentsAsync(search, cancellationToken);
 
-    private async Task DeleteAsync(ComponentDto component)
-    {
-        if (await DialogService.ShowMessageBoxAsync("Delete component", $"Delete \"{component.Name}\"? It will be removed from any boards that use it.", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
+    protected override Task DeleteOneAsync(Guid id) => Api.DeleteComponentAsync(id);
 
-        try
-        {
-            await Api.DeleteComponentAsync(component.Id);
-            Snackbar.Add("Component deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the component failed.");
-        }
-    }
+    protected override Task DeleteManyAsync(BatchDeleteRequest request) => Api.DeleteComponentsAsync(request);
 
-    private async Task DeleteSelectedAsync()
-    {
-        var ids = _selected.Select(c => c.Id).ToList();
-        if (await DialogService.ShowMessageBoxAsync("Delete components", $"Delete {ids.Count} selected component(s)? They will be removed from any boards that use them.", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
-
-        try
-        {
-            await Api.DeleteComponentsAsync(new BatchDeleteRequest { Ids = ids });
-            Snackbar.Add($"{ids.Count} component(s) deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the components failed.");
-        }
-    }
-
-    private void ShowError(Exception ex, string message)
-    {
-        if (ApiErrors.IsSessionExpired(ex))
-        {
-            _sessionExpired = true;
-            return;
-        }
-
-        Logger.LogError(ex, "{Message}", message);
-        _error = message;
-    }
+    protected override Task<IDialogReference> ShowDialogAsync(ComponentDto? component)
+        => DialogService.ShowAsync<ComponentDialog>(
+            component is null ? "New component" : "Edit component",
+            new DialogParameters<ComponentDialog> { { x => x.Component, component } });
 }

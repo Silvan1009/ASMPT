@@ -5,7 +5,7 @@ namespace Service.Api.Data.Entities;
 /// Both relationships are many-to-many skip navigations (see <see cref="Order.Boards"/> and
 /// <see cref="Component.Boards"/>).
 /// </summary>
-public sealed class Board
+public sealed class Board : INamedEntity
 {
     public Guid Id { get; init; }
 

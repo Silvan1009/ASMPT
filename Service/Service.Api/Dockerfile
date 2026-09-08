@@ -15,6 +15,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app .
+# The Serilog file sink writes to /app/logs (relative "logs/" in appsettings.json resolves against the
+# working directory, /app); /app itself is root-owned, so the directory must be created and chowned here.
+RUN mkdir -p /app/logs && chown app:app /app/logs
 USER app
 # Listens on http://+:8080 (the image default). Configuration comes from environment variables, see compose.yaml.
 ENTRYPOINT ["dotnet", "Service.Api.dll"]

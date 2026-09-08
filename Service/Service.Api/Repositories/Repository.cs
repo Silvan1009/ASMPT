@@ -12,10 +12,10 @@ namespace Service.Api.Repositories;
 public class Repository<TEntity>(ApplicationDbContext dbContext) : IRepository<TEntity>
     where TEntity : class
 {
-    /// <summary>For derived, entity-specific repositories that need more than the generic surface above
-    /// (e.g. <c>Include</c>, <c>ExecuteDeleteAsync</c>).</summary>
-    protected ApplicationDbContext DbContext { get; } = dbContext;
+    private readonly ApplicationDbContext _dbContext = dbContext;
 
+    /// <summary>The entity's set. Derived, entity-specific repositories build their Include and search queries
+    /// on it; it is all they need.</summary>
     protected DbSet<TEntity> Set { get; } = dbContext.Set<TEntity>();
 
     public async Task<TEntity?> GetByIdAsync(object id, CancellationToken cancellationToken = default)
@@ -35,5 +35,5 @@ public class Repository<TEntity>(ApplicationDbContext dbContext) : IRepository<T
     public void Remove(TEntity entity) => Set.Remove(entity);
 
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-        => DbContext.SaveChangesAsync(cancellationToken);
+        => _dbContext.SaveChangesAsync(cancellationToken);
 }

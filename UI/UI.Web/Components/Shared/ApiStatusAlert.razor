@@ -1,0 +1,38 @@
+@* The one place that renders the outcome of a failed Service API call: an expired session (an interactive
+   circuit cannot clear the auth cookie itself, so the user is asked to reload; the next full request signs
+   them out and redirects to the login page) or a user-safe error message. *@
+
+@if (SessionExpired)
+{
+    <MudAlert Severity="Severity.Warning" Class="@Class">Your session has expired. <MudLink Href="@ReloadHref">Reload the page</MudLink> to sign in again.</MudAlert>
+}
+else if (Error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="@Class">
+        @Error
+        @if (Reference is not null)
+        {
+            <MudText Typo="Typo.caption" Class="d-block mt-1">Error reference: <code>@Reference</code></MudText>
+        }
+    </MudAlert>
+}
+
+@code {
+    [Parameter]
+    public bool SessionExpired { get; set; }
+
+    [Parameter]
+    public string? Error { get; set; }
+
+    /// <summary>Trace id of the failed call, when known; shown so the user can quote it. See
+    /// ApiClient/TraceReference.cs.</summary>
+    [Parameter]
+    public string? Reference { get; set; }
+
+    /// <summary>Target of the "Reload the page" link; a full navigation to the current page.</summary>
+    [Parameter, EditorRequired]
+    public string ReloadHref { get; set; } = "/";
+
+    [Parameter]
+    public string Class { get; set; } = "mb-3";
+}

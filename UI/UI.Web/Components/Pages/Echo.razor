@@ -3,7 +3,7 @@
 
 <PageTitle>Echo</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Echo</MudText>
+<MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Echo</MudText>
 
 <MudText Class="mb-4">
     Sends the message below to the Service's <code>GET /api/Echo</code> endpoint using the
@@ -20,19 +20,13 @@
     <MudText>Response: <strong>@_result.Message</strong></MudText>
 }
 
-@if (_sessionExpired)
-{
-    <MudAlert Severity="Severity.Warning" Class="mt-3">Your session has expired. <MudLink Href="/echo">Reload the page</MudLink> to sign in again.</MudAlert>
-}
-else if (_error is not null)
-{
-    <MudAlert Severity="Severity.Error" Class="mt-3">Error: @_error</MudAlert>
-}
+<ApiStatusAlert SessionExpired="_sessionExpired" Error="@_error" Reference="@_reference" ReloadHref="/echo" Class="mt-3" />
 
 @code {
     private string _message = string.Empty;
     private EchoResponse? _result;
     private string? _error;
+    private string? _reference;
     private bool _sessionExpired;
     private bool _isSending;
 
@@ -40,19 +34,21 @@ else if (_error is not null)
     {
         _isSending = true;
         _error = null;
+        _reference = null;
+        _sessionExpired = false;
         try
         {
             _result = await ServiceApiClient.EchoAsync(_message);
         }
-        catch (Exception ex) when (ex is SessionInvalidException || ex is ApiException { StatusCode: 401 })
+        catch (Exception ex) when (ApiErrors.IsSessionExpired(ex))
         {
-            // An interactive circuit cannot clear the cookie; the next full request runs the cookie
-            // validation, which signs the user out and redirects to the login page.
             _sessionExpired = true;
         }
         catch (Exception ex)
         {
+            // A diagnostic page: the raw message is the point.
             _error = ex.Message;
+            _reference = TraceReference.For(ex);
         }
         finally
         {

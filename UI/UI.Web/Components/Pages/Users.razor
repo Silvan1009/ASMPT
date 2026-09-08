@@ -5,7 +5,7 @@
 
 <PageTitle>Users</PageTitle>
 
-<MudText Typo="Typo.h4" GutterBottom="true">Users</MudText>
+<MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Users</MudText>
 <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">Accounts are managed in Firebase; this table is synchronised from the ID token whenever a user logs in.</MudText>
 
 @if (_error is not null)
@@ -44,6 +44,13 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // Prerendered first: the list is loaded once, in the interactive instance (the prerender shows the
+        // loading state), instead of once for the prerender and again when the circuit starts.
+        if (!RendererInfo.IsInteractive)
+        {
+            return;
+        }
+
         try
         {
             _users = await Api.GetUsersAsync();

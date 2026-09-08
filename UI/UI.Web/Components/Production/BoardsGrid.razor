@@ -1,29 +1,19 @@
-@inject IServiceApiClient Api
-@inject IDialogService DialogService
-@inject ISnackbar Snackbar
-@inject ILogger<BoardsGrid> Logger
+@inherits ProductionGridBase<BoardDto>
 
 <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-    <MudTextField @bind-Value="_search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
+    <MudTextField @bind-Value="Search" @bind-Value:after="LoadAsync" Immediate="true" DebounceInterval="300"
                   Placeholder="Search name or description" Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
                   Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Class="mud-width-full" />
     <MudSpacer />
     <MudButton StartIcon="@Icons.Material.Filled.Add" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenDialogAsync(null))">Add board</MudButton>
     <MudButton StartIcon="@Icons.Material.Filled.Delete" Variant="Variant.Outlined" Color="Color.Error"
-               Disabled="@(_selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@_selected.Count)</MudButton>
+               Disabled="@(Selected.Count == 0)" OnClick="DeleteSelectedAsync">Delete selected (@Selected.Count)</MudButton>
 </MudStack>
 
-@if (_sessionExpired)
-{
-    <MudAlert Severity="Severity.Warning" Class="mb-3">Your session has expired. <MudLink Href="/production">Reload the page</MudLink> to sign in again.</MudAlert>
-}
-else if (_error is not null)
-{
-    <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
-}
+<ApiStatusAlert SessionExpired="SessionExpired" Error="@Error" Reference="@ErrorReference" ReloadHref="/production" />
 
-<MudDataGrid T="BoardDto" Items="_boards" Loading="_loading" MultiSelection="true" SelectOnRowClick="false"
-             @bind-SelectedItems="_selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
+<MudDataGrid T="BoardDto" Items="Items" Loading="Loading" MultiSelection="true" SelectOnRowClick="false"
+             @bind-SelectedItems="Selected" SortMode="SortMode.Single" Dense="true" Hover="true" Elevation="0">
     <Columns>
         <SelectColumn T="BoardDto" />
         <PropertyColumn Property="x => x.Name" Title="Name" />
@@ -47,94 +37,21 @@ else if (_error is not null)
 </MudDataGrid>
 
 @code {
-    private List<BoardDto> _boards = [];
-    private HashSet<BoardDto> _selected = [];
-    private string _search = "";
-    private bool _loading = true;
-    private bool _sessionExpired;
-    private string? _error;
+    protected override string EntityName => "board";
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    protected override string EntityNamePlural => "boards";
 
-    private async Task LoadAsync()
-    {
-        _loading = true;
-        _error = null;
-        try
-        {
-            _boards = [.. await Api.GetBoardsAsync(string.IsNullOrWhiteSpace(_search) ? null : _search)];
-            _selected = [];
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Loading boards failed.");
-        }
-        finally
-        {
-            _loading = false;
-        }
-    }
+    protected override string DeleteWarning => " Deleted boards are removed from any orders that use them.";
 
-    private async Task OpenDialogAsync(BoardDto? board)
-    {
-        var parameters = new DialogParameters<BoardDialog> { { x => x.Board, board } };
-        var dialog = await DialogService.ShowAsync<BoardDialog>(board is null ? "New board" : "Edit board", parameters);
-        var result = await dialog.Result;
-        if (result is { Canceled: false })
-        {
-            Snackbar.Add(board is null ? "Board created." : "Board saved.", Severity.Success);
-            await LoadAsync();
-        }
-    }
+    protected override async Task<ICollection<BoardDto>> FetchAsync(string? search, CancellationToken cancellationToken)
+        => await Api.GetBoardsAsync(search, cancellationToken);
 
-    private async Task DeleteAsync(BoardDto board)
-    {
-        if (await DialogService.ShowMessageBoxAsync("Delete board", $"Delete \"{board.Name}\"? It will be removed from any orders that use it.", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
+    protected override Task DeleteOneAsync(Guid id) => Api.DeleteBoardAsync(id);
 
-        try
-        {
-            await Api.DeleteBoardAsync(board.Id);
-            Snackbar.Add("Board deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the board failed.");
-        }
-    }
+    protected override Task DeleteManyAsync(BatchDeleteRequest request) => Api.DeleteBoardsAsync(request);
 
-    private async Task DeleteSelectedAsync()
-    {
-        var ids = _selected.Select(b => b.Id).ToList();
-        if (await DialogService.ShowMessageBoxAsync("Delete boards", $"Delete {ids.Count} selected board(s)? They will be removed from any orders that use them.", yesText: "Delete", cancelText: "Cancel") != true)
-        {
-            return;
-        }
-
-        try
-        {
-            await Api.DeleteBoardsAsync(new BatchDeleteRequest { Ids = ids });
-            Snackbar.Add($"{ids.Count} board(s) deleted.", Severity.Success);
-            await LoadAsync();
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            ShowError(ex, "Deleting the boards failed.");
-        }
-    }
-
-    private void ShowError(Exception ex, string message)
-    {
-        if (ApiErrors.IsSessionExpired(ex))
-        {
-            _sessionExpired = true;
-            return;
-        }
-
-        Logger.LogError(ex, "{Message}", message);
-        _error = message;
-    }
+    protected override Task<IDialogReference> ShowDialogAsync(BoardDto? board)
+        => DialogService.ShowAsync<BoardDialog>(
+            board is null ? "New board" : "Edit board",
+            new DialogParameters<BoardDialog> { { x => x.Board, board } });
 }

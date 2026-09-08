@@ -8,7 +8,8 @@ namespace Service.Api.ErrorHandling;
 /// validation uses, so the UI can show the error on the offending field regardless of whether it came from
 /// validation or from a service-level check.
 /// </summary>
-internal sealed class RelatedEntitiesNotFoundExceptionHandler(IProblemDetailsService problemDetailsService) : IExceptionHandler
+internal sealed class RelatedEntitiesNotFoundExceptionHandler(
+    IProblemDetailsService problemDetailsService, ILogger<RelatedEntitiesNotFoundExceptionHandler> logger) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
     {
@@ -16,6 +17,10 @@ internal sealed class RelatedEntitiesNotFoundExceptionHandler(IProblemDetailsSer
         {
             return false;   // not ours: let the next handler (or the default 500 problem) take it
         }
+
+        // ExceptionHandlerMiddleware stays silent for exceptions handled by an IExceptionHandler (its default
+        // SuppressDiagnosticsCallback), so this is the only record of the rejection. Ids only, never user text.
+        logger.LogWarning("Request rejected: {PropertyName} references unknown ids ({Detail})", ex.PropertyName, ex.Message);
 
         httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
 

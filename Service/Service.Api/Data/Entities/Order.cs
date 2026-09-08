@@ -4,7 +4,7 @@ namespace Service.Api.Data.Entities;
 /// A production order for one or more boards. Boards can be shared between orders (see
 /// <see cref="Board.Orders"/>), so the relationship is modeled as a many-to-many skip navigation.
 /// </summary>
-public sealed class Order
+public sealed class Order : INamedEntity
 {
     public Guid Id { get; init; }
 

@@ -1,65 +1,60 @@
-@inject IServiceApiClient Api
-@inject ILogger<OrderDialog> Logger
+@inherits EntityDialogBase
 
 <MudDialog>
     <DialogContent>
-        @if (_error is not null)
+        @if (Error is not null)
         {
-            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+            <MudAlert Severity="Severity.Error" Class="mb-3">@Error</MudAlert>
         }
-        <MudForm @ref="_form">
-            <MudTextField @bind-Value="_name" Label="Name" Required="true" RequiredError="Name is required" MaxLength="200" Immediate="true"
-                          Error="@HasError("Name")" ErrorText="@ErrorText("Name")" />
-            <MudTextField @bind-Value="_description" Label="Description" Lines="3" MaxLength="2000" Class="mt-3"
-                          Error="@HasError("Description")" ErrorText="@ErrorText("Description")" />
+        <MudForm @ref="Form">
+            <MudTextField @bind-Value="Name" Label="Name" Required="true" RequiredError="Name is required" MaxLength="200" Immediate="true"
+                          Error="@HasError(nameof(OrderRequest.Name))" ErrorText="@ErrorText(nameof(OrderRequest.Name))" />
+            <MudTextField @bind-Value="Description" Label="Description" Lines="3" MaxLength="2000" Class="mt-3"
+                          Error="@HasError(nameof(OrderRequest.Description))" ErrorText="@ErrorText(nameof(OrderRequest.Description))" />
             <MudDatePicker @bind-Date="_orderDate" Label="Order date" Required="true" Editable="true" DateFormat="yyyy-MM-dd" Class="mt-3"
-                           Error="@HasError("OrderDate")" ErrorText="@ErrorText("OrderDate")" />
+                           Error="@HasError(nameof(OrderRequest.OrderDate))" ErrorText="@ErrorText(nameof(OrderRequest.OrderDate))" />
             <MudSelect T="Guid" @bind-SelectedValues="_boardIds" MultiSelection="true" SelectAll="true" SelectAllText="Select all"
                        Label="Boards" Required="true" RequiredError="Select at least one board" Class="mt-3"
                        ToStringFunc="@(id => _boardNames.GetValueOrDefault(id, id.ToString()))"
-                       Error="@HasError("BoardIds")" ErrorText="@ErrorText("BoardIds")">
+                       Error="@HasError(nameof(OrderRequest.BoardIds))" ErrorText="@ErrorText(nameof(OrderRequest.BoardIds))">
                 @foreach (var board in _boards)
                 {
                     <MudSelectItem T="Guid" Value="@board.Id">@board.Name</MudSelectItem>
                 }
             </MudSelect>
-            @if (_boards.Count == 0 && _error is null)
+            @if (_boards.Count == 0 && Error is null)
             {
                 <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">No boards yet: create boards on the Boards tab first.</MudText>
             }
         </MudForm>
     </DialogContent>
     <DialogActions>
-        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="_saving">Save</MudButton>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync" Disabled="Saving">Save</MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
-    [CascadingParameter]
-    private IMudDialogInstance MudDialog { get; set; } = default!;
-
     /// <summary>Existing order to edit; null creates a new one.</summary>
     [Parameter]
     public OrderDto? Order { get; set; }
 
-    private MudForm _form = default!;
-    private string _name = "";
-    private string? _description;
     private DateTime? _orderDate = DateTime.Today;
     private IReadOnlyCollection<Guid>? _boardIds = [];
     private ICollection<BoardDto> _boards = [];
     private Dictionary<Guid, string> _boardNames = [];
-    private IDictionary<string, ICollection<string>>? _fieldErrors;
-    private string? _error;
-    private bool _saving;
+
+    protected override string EntityName => "order";
+
+    protected override IReadOnlyCollection<string> KnownFields { get; } =
+        [nameof(OrderRequest.Name), nameof(OrderRequest.Description), nameof(OrderRequest.OrderDate), nameof(OrderRequest.BoardIds)];
 
     protected override async Task OnInitializedAsync()
     {
         if (Order is not null)
         {
-            _name = Order.Name;
-            _description = Order.Description;
+            Name = Order.Name;
+            Description = Order.Description;
             _orderDate = Order.OrderDate.ToDateTime(TimeOnly.MinValue);
         }
 
@@ -75,7 +70,7 @@
         catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
         {
             Logger.LogError(ex, "Loading boards for the order dialog failed");
-            _error = "Boards could not be loaded. Close the dialog and try again.";
+            Error = "Boards could not be loaded. Close the dialog and try again.";
             return;
         }
 
@@ -85,66 +80,19 @@
         }
     }
 
-    private async Task SaveAsync()
+    protected override async Task<object> SaveCoreAsync()
     {
-        await _form.ValidateAsync();
-        if (!_form.IsValid || _orderDate is null)
-        {
-            return;
-        }
-
         var request = new OrderRequest
         {
-            Name = _name.Trim(),
-            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
-            OrderDate = DateOnly.FromDateTime(_orderDate.Value),
+            Name = TrimmedName,
+            Description = TrimmedDescription,
+            // The picker is Required, so a valid form always carries a date; the server rejects null anyway.
+            OrderDate = _orderDate is { } date ? DateOnly.FromDateTime(date) : null,
             BoardIds = (_boardIds ?? []).ToList(),
         };
 
-        _saving = true;
-        _error = null;
-        _fieldErrors = null;
-        try
-        {
-            var saved = Order is null
-                ? await Api.CreateOrderAsync(request)
-                : await Api.UpdateOrderAsync(Order.Id, request);
-            MudDialog.Close(DialogResult.Ok(saved));
-        }
-        catch (Exception ex) when (ApiErrors.IsApiFailure(ex))
-        {
-            HandleSaveFailure(ex);
-        }
-        finally
-        {
-            _saving = false;
-        }
+        return Order is null
+            ? await Api.CreateOrderAsync(request)
+            : await Api.UpdateOrderAsync(Order.Id, request);
     }
-
-    private void HandleSaveFailure(Exception ex)
-    {
-        if (ApiErrors.IsSessionExpired(ex))
-        {
-            _error = "Your session has expired. Reload the page to sign in again.";
-            return;
-        }
-
-        if (ApiErrors.TryGetFieldErrors(ex) is { } fieldErrors)
-        {
-            _fieldErrors = fieldErrors;
-            var unmatched = fieldErrors.Where(e => !KnownFields.Contains(e.Key, StringComparer.OrdinalIgnoreCase)).SelectMany(e => e.Value).ToList();
-            _error = unmatched.Count > 0 ? string.Join(" ", unmatched) : "Please correct the highlighted fields.";
-            return;
-        }
-
-        Logger.LogError(ex, "Saving the order failed");
-        _error = ApiErrors.Describe(ex, "Saving failed. Please try again.");
-    }
-
-    private static readonly string[] KnownFields = ["Name", "Description", "OrderDate", "BoardIds"];
-
-    private bool HasError(string field) => ErrorText(field) is not null;
-
-    private string? ErrorText(string field) => _fieldErrors?
-        .FirstOrDefault(e => string.Equals(e.Key, field, StringComparison.OrdinalIgnoreCase)).Value?.FirstOrDefault();
 }

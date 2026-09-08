@@ -7,18 +7,20 @@ internal static class FileNames
 {
     private const int MaxLength = 50;
 
-    /// <summary>Lower-cases <paramref name="name"/> and replaces whitespace and invalid file name
-    /// characters with "-", collapsing repeats and trimming the result. Falls back to
-    /// <paramref name="fallback"/> (typically the entity's id) when nothing usable remains.</summary>
+    /// <summary>Lower-cases <paramref name="name"/> and replaces whitespace, control characters and the
+    /// characters that are invalid in file names on any common platform with "-", collapsing repeats and
+    /// trimming the result. Falls back to <paramref name="fallback"/> (typically the entity's id) when nothing
+    /// usable remains.</summary>
     public static string Sanitize(string name, string fallback)
     {
-        var invalid = Path.GetInvalidFileNameChars();
         var builder = new StringBuilder(name.Length);
         var lastWasDash = false;
 
         foreach (var c in name.Trim().ToLowerInvariant())
         {
-            var isDash = char.IsWhiteSpace(c) || Array.IndexOf(invalid, c) >= 0 || c is '\\' or '/' or ':' or '*' or '?' or '"' or '<' or '>' or '|';
+            // An explicit set rather than Path.GetInvalidFileNameChars(): that list depends on the host OS
+            // (only '\0' and '/' on Linux), and the file name must be the same wherever the Service runs.
+            var isDash = char.IsWhiteSpace(c) || char.IsControl(c) || c is '\\' or '/' or ':' or '*' or '?' or '"' or '<' or '>' or '|';
             if (isDash)
             {
                 if (!lastWasDash && builder.Length > 0)
