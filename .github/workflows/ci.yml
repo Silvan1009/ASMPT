@@ -1,0 +1,99 @@
+# Build and test both solutions on every push to main and every pull request.
+# The Service job additionally verifies that the committed OpenAPI document — the contract
+# the UI's API client is generated from — still matches the Service's code.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  service:
+    name: Service — build, contract, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore Service/Service.slnx
+
+      # Writes Service/Service.Api/OpenApi/Service.Api.json as a side effect
+      # (OpenApiGenerateDocumentsOnBuild in Service.Api.csproj).
+      - name: Build
+        run: dotnet build Service/Service.slnx -c Release --no-restore
+
+      - name: Verify the committed OpenAPI document is up to date
+        run: |
+          if ! git diff --exit-code -- Service/Service.Api/OpenApi/Service.Api.json; then
+            echo "::error file=Service/Service.Api/OpenApi/Service.Api.json::The committed OpenAPI document no longer matches the Service. Run 'dotnet build Service/Service.slnx' and commit the regenerated file — the UI generates its API client from it."
+            exit 1
+          fi
+
+      - name: Test
+        run: >
+          dotnet test Service/Service.slnx -c Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --logger "console;verbosity=normal"
+          --results-directory TestResults
+          --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: warn
+
+  ui:
+    name: UI — build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore UI/UI.slnx
+
+      # NSwag regenerates ServiceApiClient from the committed OpenAPI document during this build,
+      # so a Service change that was not committed alongside its document breaks here.
+      - name: Build
+        run: dotnet build UI/UI.slnx -c Release --no-restore

@@ -91,6 +91,27 @@ emulator itself.
 The UI reads the Service's base URL from `UI/UI.Web/appsettings.json` (`ServiceApi:BaseUrl`, defaults to
 `https://localhost:7168`).
 
+## Continuous integration
+
+Two GitHub Actions workflows run on every push to `main` and every pull request against it
+(both are also `workflow_dispatch`-able):
+
+| Workflow | What it does |
+|---|---|
+| `.github/workflows/ci.yml` | Builds `Service/Service.slnx` and `UI/UI.slnx` in Release on the .NET 10 SDK, runs the xUnit tests with a `trx` report and Cobertura coverage (uploaded as the `test-results` artifact), and checks the OpenAPI contract. |
+| `.github/workflows/docker.yml` | Builds the three images behind `compose.yaml` (Service, UI, Firebase Auth emulator) with buildx and a layer cache, and validates `compose.yaml` with `docker compose config`. Nothing is pushed — these are local development images. |
+
+The contract check is the one worth knowing about: building the Service rewrites
+`Service/Service.Api/OpenApi/Service.Api.json`, so CI fails if that file differs from what the
+current code produces. That is the "if you forget, commit the regenerated JSON" rule from
+[How the client generation works](#how-the-client-generation-works), enforced. The UI job would
+fail the same way later — it generates its client from the committed document — but the Service
+job names the actual problem.
+
+Neither workflow needs secrets: the build-time OpenAPI export skips start-up configuration
+validation (see [How the client generation works](#how-the-client-generation-works)), and the tests
+are unit tests with no database or Firebase dependency.
+
 ## Authentication
 
 Firebase Authentication is the identity provider. The apps forward passwords to Firebase during login

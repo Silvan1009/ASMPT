@@ -17,3 +17,6 @@ logs/
 
 ## HTTPS development certificate exported for the Docker stack (see README)
 certs/
+
+## Test results (dotnet test --results-directory, see .github/workflows/ci.yml)
+TestResults/

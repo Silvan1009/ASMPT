@@ -1,0 +1,63 @@
+# Verifies that the images behind compose.yaml still build. Nothing is pushed —
+# these are local development images, so the workflow only proves they are buildable.
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The Service and UI images take the repository root as context: the UI build needs
+          # Service/Service.Api/OpenApi/Service.Api.json for the NSwag client generation.
+          - name: service-api
+            context: .
+            dockerfile: Service/Service.Api/Dockerfile
+          - name: ui-web
+            context: .
+            dockerfile: UI/UI.Web/Dockerfile
+          - name: firebase-auth-emulator
+            context: docker/firebase-auth-emulator
+            dockerfile: docker/firebase-auth-emulator/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  compose:
+    name: Validate compose.yaml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fails on unknown keys, bad interpolation or an unresolvable service reference.
+      - name: docker compose config
+        run: docker compose -f compose.yaml config --quiet
