@@ -987,65 +987,6 @@
         }
       }
     },
-    "/api/Echo": {
-      "get": {
-        "tags": [
-          "Echo"
-        ],
-        "operationId": "Echo",
-        "parameters": [
-          {
-            "name": "message",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/EchoResponse"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EchoResponse"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EchoResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/Orders": {
       "get": {
         "tags": [
@@ -1931,17 +1872,6 @@
           }
         }
       },
-      "EchoResponse": {
-        "required": [
-          "message"
-        ],
-        "type": "object",
-        "properties": {
-          "message": {
-            "type": "string"
-          }
-        }
-      },
       "EntityRefDto": {
         "required": [
           "id",
@@ -2189,9 +2119,6 @@
     },
     {
       "name": "Components"
-    },
-    {
-      "name": "Echo"
     },
     {
       "name": "Orders"

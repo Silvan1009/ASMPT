@@ -2,8 +2,8 @@
 
 Two independent solutions:
 
-- **Service** — an ASP.NET Core Web API (`Service/Service.slnx` → `Service.Api`) exposing `GET /api/Echo`,
-  the `Users` endpoints, and CRUD + search for `Orders`, `Boards` and `Components` (see
+- **Service** — an ASP.NET Core Web API (`Service/Service.slnx` → `Service.Api`) exposing the `Users`
+  endpoints and CRUD + search for `Orders`, `Boards` and `Components` (see
   [Production data](#production-data-orders-boards-components)), with an OpenAPI document and a browsable
   Swagger UI. Every endpoint requires a Firebase ID token.
 - **UI** — a Blazor Web App (`UI/UI.slnx` → `UI.Web`) with a Firebase-backed login, a cookie session, an
@@ -239,8 +239,8 @@ to EF Core directly:
   additionally get their own repository interface (`IOrderRepository` etc., in the same file pattern)
   for the graph-loading and search queries the generic interface can't express (`Include`, `ILike`,
   `ExecuteDeleteAsync`).
-- `Services/IEchoService.cs` + `EchoService.cs`, `Services/IUserService.cs` + `UserService.cs`, and the
-  equivalent `IOrderService`/`IBoardService`/`IComponentService` — the same pattern applied to every
+- `Services/IUserService.cs` + `UserService.cs`, and the equivalent
+  `IOrderService`/`IBoardService`/`IComponentService` — the same pattern applied to every
   feature: controllers depend on the interfaces, not on concrete classes, so the controllers and the
   services can each be unit-tested in isolation.
 - Request payloads (`Models/{Order,Board,Component}Request.cs`, `BatchDeleteRequest.cs`) are plain mutable
@@ -267,7 +267,7 @@ configured entirely from the `Serilog` section of `appsettings.json` (the `Loggi
 Serilog is added). Every log line carries the current [W3C trace id](https://www.w3.org/TR/trace-context/) as
 its `{TraceId}` column — the same id ASP.NET Core already writes into every RFC 7807 problem response as
 `traceId`, and the value shown to the user as an "error reference" (in the `/production` grid and dialog
-alerts, on the Echo page, in the layout's error banner, and on `/Error`). The UI forwards the W3C `traceparent`
+alerts, in the layout's error banner, and on `/Error`). The UI forwards the W3C `traceparent`
 header on every call to the Service — `Logging/TraceCircuitHandler.cs` gives each Blazor circuit interaction
 its own trace, since SignalR would otherwise clear it on every hub invocation — so one reference finds the
 matching lines in **both** apps' log files.

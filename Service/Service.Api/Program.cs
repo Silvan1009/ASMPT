@@ -89,7 +89,6 @@ try
     builder.Services.AddScoped<IComponentRepository, ComponentRepository>();
 
     builder.Services.AddSingleton(TimeProvider.System);
-    builder.Services.AddScoped<IEchoService, EchoService>();
     builder.Services.AddScoped<IUserService, UserService>();
     builder.Services.AddScoped<IOrderService, OrderService>();
     builder.Services.AddScoped<IBoardService, BoardService>();
