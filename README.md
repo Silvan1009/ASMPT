@@ -43,11 +43,26 @@ unaffected.
 
 ## Running
 
-Prerequisites: the .NET 10 SDK, Docker, and a trusted HTTPS development certificate
-(`dotnet dev-certs https --trust`). The UI's session cookie is marked `Secure`, so the browser must
-reach the UI over HTTPS in either mode.
+Prerequisites: Docker, and for running the apps on the host the .NET 10 SDK with a trusted HTTPS
+development certificate (`dotnet dev-certs https --trust`). The UI's session cookie is marked `Secure`,
+so the browser must reach the UI over HTTPS in either mode.
 
 **Everything in Docker**
+
+On Windows, run `start.cmd` in the repository root — double-click it or call it from a terminal. It needs
+nothing but Docker Desktop: it starts Docker Desktop when the engine is not running, stops early when
+another program holds one of the ports below (and names it), creates `certs/aspnetapp.pfx` and trusts it
+for the current Windows user, runs `docker compose up --build`, waits until the Service and the UI
+actually answer, and prints the URLs. If an app does not come up, it shows that container's last log
+lines. Every step only does what is missing, so `start.cmd` is also the way to start again later; a re-run
+rebuilds from the cache and restarts the app containers.
+
+The certificate comes from `dotnet dev-certs`: with a .NET SDK installed it is your own development
+certificate, otherwise the tool runs inside the .NET SDK image the Dockerfiles use. If Windows does not
+trust the certificate yet, it asks you to confirm adding it; `start.cmd -SkipCertificateTrust` leaves the
+certificate store alone, and the browser shows a certificate warning instead.
+
+By hand, with the .NET SDK installed:
 
 ```bash
 dotnet dev-certs https -ep certs/aspnetapp.pfx -p changeit   # once: the UI container serves HTTPS with your dev certificate
@@ -64,9 +79,10 @@ docker compose up -d --build
 Type the scheme: `localhost:7176` without `https://` sends plain HTTP to the TLS port and the browser
 shows `ERR_EMPTY_RESPONSE`. The Service container applies pending EF Core migrations at start-up
 (`Database:MigrateOnStartup`, set only in `compose.yaml`). Inside the compose network the UI calls the Service over plain HTTP and both
-apps use the emulator at `firebase-auth:9099`; the host-facing URLs above use the same dev certificate
-as `dotnet run`. `certs/` is git-ignored; the certificate password can be changed through the
-`DEV_CERT_PASSWORD` variable, for example in a `.env` file.
+apps use the emulator at `firebase-auth:9099`; the host-facing URLs above use the certificate in
+`certs/`, which is the same dev certificate as `dotnet run` unless `start.cmd` had to create it without
+an SDK. `certs/` is git-ignored; the certificate password can be changed through the
+`DEV_CERT_PASSWORD` variable, for example in a `.env` file (`start.cmd` picks it up the same way).
 
 **Apps on the host, infrastructure in Docker**
 

@@ -1,0 +1,2 @@
+# cmd.exe can misparse batch files with LF line endings; keep them CRLF in every checkout and archive.
+*.cmd text eol=crlf
